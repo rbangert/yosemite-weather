@@ -124,6 +124,14 @@ in which case each point gets its own row referencing the same `station_id`.
 
 Unique: `(point_slug, observed_at)`.
 
+### Retention
+
+At the end of every poll cycle, old data is pruned to keep both tables bounded:
+
+- **Forecasts** — rows whose `valid_time` is now in the past are deleted (the
+  forward horizon is already capped by `FORECAST_HOURS`).
+- **Observations** — rows older than `OBSERVATION_RETENTION_DAYS` (default 30) are deleted.
+
 ### API response shapes
 
 `GET /api/areas` returns the config as-is: an array of areas, each with a `points`

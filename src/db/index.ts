@@ -113,6 +113,21 @@ function seedPoints(): void {
   tx();
 }
 
+// Drop data that is no longer useful: forecast hours now in the past, and
+// observations older than the retention window. Keeps both tables bounded.
+export function pruneOldData(): { forecasts: number; observations: number } {
+  const db = getDb();
+  const nowHour = new Date().toISOString().slice(0, 13) + ":00:00Z";
+  const obsCutoff = new Date(
+    Date.now() - config.observationRetentionDays * 86_400_000
+  ).toISOString();
+
+  const f = db.prepare(`DELETE FROM forecasts WHERE valid_time < ?`).run(nowHour);
+  const o = db.prepare(`DELETE FROM observations WHERE observed_at < ?`).run(obsCutoff);
+
+  return { forecasts: f.changes, observations: o.changes };
+}
+
 export function closeDb(): void {
   if (db) {
     db.close();

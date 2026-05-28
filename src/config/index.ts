@@ -10,6 +10,8 @@ export const config = {
   pollIntervalMs: Number(process.env.POLL_INTERVAL_MS) || 15 * 60 * 1000, // 15 minutes
   // How many hours of hourly forecast to retain per point.
   forecastHours: Number(process.env.FORECAST_HOURS) || 72,
+  // How many days of past observations to retain.
+  observationRetentionDays: Number(process.env.OBSERVATION_RETENTION_DAYS) || 30,
 };
 
 // A monitored location, identified by coordinates. NWS resolves these to a

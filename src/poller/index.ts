@@ -1,4 +1,4 @@
-import { getDb } from "../db";
+import { getDb, pruneOldData } from "../db";
 import { config } from "../config";
 import {
   resolvePoint,
@@ -47,9 +47,15 @@ export async function poll(): Promise<{ forecasts: number; observations: number 
     }
   }
 
+  const pruned = pruneOldData();
   console.log(
     `Stored ${forecastCount} forecast hours, ${obsCount} new observations at ${new Date().toISOString()}`
   );
+  if (pruned.forecasts > 0 || pruned.observations > 0) {
+    console.log(
+      `Pruned ${pruned.forecasts} past forecast hours, ${pruned.observations} old observations`
+    );
+  }
   return { forecasts: forecastCount, observations: obsCount };
 }
 
