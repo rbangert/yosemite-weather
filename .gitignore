@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+
+# Environment / secrets
+.env
+
+# Local data
+data/
+
+# Logs
+*.log
+
+# Claude Code local (machine-specific) settings
+.claude/settings.local.json
