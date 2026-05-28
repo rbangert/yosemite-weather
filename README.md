@@ -38,6 +38,9 @@ bun run start
 
 # Run a one-off poll manually
 bun run poll
+
+# Run the test suite
+bun test
 ```
 
 On the first poll, each point is resolved to its NWS forecast grid and nearest

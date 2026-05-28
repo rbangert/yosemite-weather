@@ -76,7 +76,7 @@ interface GridLayer {
 }
 
 // ISO 8601 duration -> hours (covers the W/D/H/M parts NWS emits, e.g. PT6H, P1DT1H).
-function durationHours(iso: string): number {
+export function durationHours(iso: string): number {
   const m = iso.match(/P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?)?/);
   if (!m) return 1;
   const [, w, d, h, min] = m.map((x) => (x ? Number(x) : 0));
@@ -90,7 +90,7 @@ function hourKey(date: Date): string {
 // Expand a gridpoint layer's interval values into a per-hour map.
 // Accumulation layers (e.g. snowfall) are divided evenly across the interval;
 // instantaneous layers carry their value across each hour they cover.
-function expandLayer(
+export function expandLayer(
   layer: GridLayer | undefined,
   opts: { accumulation?: boolean; convert?: (v: number) => number } = {}
 ): Map<string, number | null> {

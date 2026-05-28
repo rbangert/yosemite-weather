@@ -6,7 +6,8 @@
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
     "db:setup": "bun run src/db/setup.ts",
-    "poll": "bun run src/poller/poll.ts"
+    "poll": "bun run src/poller/poll.ts",
+    "test": "bun test"
   },
   "dependencies": {},
   "devDependencies": {
