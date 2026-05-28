@@ -2,17 +2,47 @@ import { config } from "../config";
 
 // --- HTTP -------------------------------------------------------------------
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Transient statuses worth retrying. Other 4xx (e.g. 404) are permanent.
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+
+// Fetch with exponential backoff. Retries network errors and transient 5xx/429
+// responses (honoring Retry-After when present), but throws immediately on
+// permanent failures like 404.
 async function nwsFetch(url: string): Promise<any> {
-  const res = await fetch(url, {
-    headers: {
-      "User-Agent": config.nwsUserAgent,
-      Accept: "application/geo+json",
-    },
-  });
-  if (!res.ok) {
-    throw new Error(`NWS API error ${res.status} ${res.statusText} for ${url}`);
+  const { retryMaxAttempts, retryBaseDelayMs } = config;
+
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          "User-Agent": config.nwsUserAgent,
+          Accept: "application/geo+json",
+        },
+      });
+
+      if (res.ok) return res.json();
+
+      if (!RETRYABLE_STATUS.has(res.status) || attempt >= retryMaxAttempts) {
+        throw new Error(`NWS API error ${res.status} ${res.statusText} for ${url}`);
+      }
+
+      const retryAfter = Number(res.headers?.get("retry-after"));
+      const delay = retryAfter > 0 ? retryAfter * 1000 : retryBaseDelayMs * 2 ** attempt;
+      console.warn(`  NWS ${res.status} on ${url} — retrying in ${delay}ms`);
+      await sleep(delay);
+    } catch (err) {
+      // A thrown Error here is either our non-retryable status above or a
+      // network failure. Re-throw once retries are exhausted.
+      if (attempt >= retryMaxAttempts || (err as Error).message?.startsWith("NWS API error")) {
+        throw err;
+      }
+      const delay = retryBaseDelayMs * 2 ** attempt;
+      console.warn(`  NWS request failed (${(err as Error).message}) — retrying in ${delay}ms`);
+      await sleep(delay);
+    }
   }
-  return res.json();
 }
 
 // --- Unit conversions -------------------------------------------------------

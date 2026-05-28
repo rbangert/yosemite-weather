@@ -5,6 +5,10 @@ import {
   fetchGridpointForecast,
   fetchLatestObservation,
 } from "./client";
+import { config } from "../config";
+
+// Keep backoff near-instant so retry tests run fast.
+config.retryBaseDelayMs = 1;
 
 describe("durationHours", () => {
   test("parses hour durations", () => {
@@ -89,8 +93,63 @@ afterEach(() => {
 
 function stubFetch(payload: unknown, ok = true) {
   globalThis.fetch = (async () =>
-    ({ ok, status: ok ? 200 : 500, statusText: "", json: async () => payload }) as Response) as typeof fetch;
+    ({ ok, status: ok ? 200 : 500, statusText: "", headers: new Headers(), json: async () => payload }) as Response) as typeof fetch;
 }
+
+// Returns each step in order on successive calls; tracks how many calls happened.
+function stubFetchSequence(
+  steps: ({ status: number; payload?: unknown } | "network-error")[]
+) {
+  const calls = { count: 0 };
+  globalThis.fetch = (async () => {
+    const step = steps[Math.min(calls.count, steps.length - 1)];
+    calls.count++;
+    if (step === "network-error") throw new Error("ECONNRESET");
+    return {
+      ok: step.status >= 200 && step.status < 300,
+      status: step.status,
+      statusText: "",
+      headers: new Headers(),
+      json: async () => step.payload ?? {},
+    } as Response;
+  }) as typeof fetch;
+  return calls;
+}
+
+describe("nwsFetch retry/backoff", () => {
+  const okPayload = { properties: { timestamp: "2026-05-28T23:00:00+00:00" } };
+
+  test("retries a transient 503 then succeeds", async () => {
+    const calls = stubFetchSequence([
+      { status: 503 },
+      { status: 200, payload: okPayload },
+    ]);
+    const obs = await fetchLatestObservation("X");
+    expect(obs).not.toBeNull();
+    expect(calls.count).toBe(2);
+  });
+
+  test("retries a network error then succeeds", async () => {
+    const calls = stubFetchSequence([
+      "network-error",
+      { status: 200, payload: okPayload },
+    ]);
+    await fetchLatestObservation("X");
+    expect(calls.count).toBe(2);
+  });
+
+  test("does not retry a permanent 404", async () => {
+    const calls = stubFetchSequence([{ status: 404 }]);
+    await expect(fetchLatestObservation("X")).rejects.toThrow(/404/);
+    expect(calls.count).toBe(1);
+  });
+
+  test("gives up after exhausting attempts on persistent 500", async () => {
+    const calls = stubFetchSequence([{ status: 500 }]);
+    await expect(fetchLatestObservation("X")).rejects.toThrow(/NWS API error/);
+    expect(calls.count).toBe(config.retryMaxAttempts + 1);
+  });
+});
 
 describe("fetchGridpointForecast", () => {
   // Anchor sample times to the current hour so they fall inside the horizon.
@@ -192,6 +251,6 @@ describe("fetchLatestObservation", () => {
 
   test("throws on a non-ok response", async () => {
     stubFetch({}, false);
-    expect(fetchLatestObservation("BAD")).rejects.toThrow(/NWS API error/);
+    await expect(fetchLatestObservation("BAD")).rejects.toThrow(/NWS API error/);
   });
 });

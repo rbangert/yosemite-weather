@@ -12,6 +12,9 @@ export const config = {
   forecastHours: Number(process.env.FORECAST_HOURS) || 72,
   // How many days of past observations to retain.
   observationRetentionDays: Number(process.env.OBSERVATION_RETENTION_DAYS) || 30,
+  // Retry transient NWS failures (5xx/429/network) with exponential backoff.
+  retryMaxAttempts: Number(process.env.NWS_RETRY_MAX_ATTEMPTS) || 3,
+  retryBaseDelayMs: Number(process.env.NWS_RETRY_BASE_DELAY_MS) || 500,
 };
 
 // A monitored location, identified by coordinates. NWS resolves these to a

@@ -46,6 +46,10 @@ bun test
 On the first poll, each point is resolved to its NWS forecast grid and nearest
 observation station; the resolution is cached in the database so later polls skip it.
 
+Transient NWS failures (5xx, 429, network errors) are retried with exponential
+backoff — `NWS_RETRY_MAX_ATTEMPTS` (default 3), `NWS_RETRY_BASE_DELAY_MS` (default
+500). A failure on one point is logged and skipped without aborting the cycle.
+
 ## API Endpoints
 
 | Endpoint | Description |
