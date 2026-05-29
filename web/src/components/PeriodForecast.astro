@@ -9,9 +9,8 @@ interface Props {
 const { periods } = Astro.props;
 if (!periods.length) return;
 
-function tempColor(t: number | null, isDay: boolean): string {
+function tempColor(t: number | null): string {
   if (t === null) return 'text-slate-500';
-  if (!isDay) return 'text-slate-400';
   if (t < 32)  return 'text-blue-300';
   if (t < 45)  return 'text-sky-300';
   if (t < 60)  return 'text-emerald-300';
@@ -19,6 +18,25 @@ function tempColor(t: number | null, isDay: boolean): string {
   if (t < 85)  return 'text-orange-300';
   return 'text-red-400';
 }
+
+const WIND_DIR_ICON: Record<string, string> = {
+  'N':   'wi-wind-north',
+  'NNE': 'wi-wind-north-east',
+  'NE':  'wi-wind-north-east',
+  'ENE': 'wi-wind-east',
+  'E':   'wi-wind-east',
+  'ESE': 'wi-wind-south-east',
+  'SE':  'wi-wind-south-east',
+  'SSE': 'wi-wind-south',
+  'S':   'wi-wind-south',
+  'SSW': 'wi-wind-south-west',
+  'SW':  'wi-wind-south-west',
+  'WSW': 'wi-wind-west',
+  'W':   'wi-wind-west',
+  'WNW': 'wi-wind-north-west',
+  'NW':  'wi-wind-north-west',
+  'NNW': 'wi-wind-north',
+};
 
 // Alternating background per day-group (each day + night pair = one group).
 function groupIndex(i: number): number {
@@ -55,6 +73,7 @@ function groupIndex(i: number): number {
             : (g % 2 === 0 ? 'bg-slate-800/30' : 'bg-slate-800/50');
           const { wiClass, colorClass } = nwsIcon(row.icon_url, isDay);
           const precip = row.precip_prob ?? 0;
+          const tColor = tempColor(row.temperature);
 
           return (
             <tr class={`border-b border-slate-800/40 ${rowBg}`}>
@@ -69,12 +88,17 @@ function groupIndex(i: number): number {
                   <span class="text-slate-300">{row.short_forecast ?? '—'}</span>
                 </div>
               </td>
-              <td class={`px-4 py-2.5 text-right tabular-nums font-semibold ${tempColor(row.temperature, isDay)}`}>
+              <td class={`px-4 py-2.5 text-right tabular-nums font-semibold ${tColor}`}>
                 {row.temperature !== null ? `${row.temperature}°F` : '—'}
               </td>
               <td class="hidden whitespace-nowrap px-4 py-2.5 text-slate-400 sm:table-cell">
                 {row.wind_speed && row.wind_direction
-                  ? `${row.wind_direction} ${row.wind_speed}`
+                  ? <span class="flex items-center gap-1.5">
+                      {WIND_DIR_ICON[row.wind_direction] && (
+                        <i class={`wi ${WIND_DIR_ICON[row.wind_direction]} text-2xl leading-none text-white`} aria-hidden="true" />
+                      )}
+                      {row.wind_direction} {row.wind_speed}
+                    </span>
                   : (row.wind_speed ?? '—')}
               </td>
               <td class={`px-4 py-2.5 text-right tabular-nums ${precip >= 20 ? 'text-blue-400' : 'text-slate-600'}`}>

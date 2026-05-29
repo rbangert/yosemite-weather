@@ -2,8 +2,9 @@
 import Layout from '../layouts/Layout.astro';
 import ObsTable from '../components/ObsTable.astro';
 import SummaryCard from '../components/SummaryCard.astro';
-import { fetchOverview, fetchForecast, fetchLatestObservation } from '../lib/api';
-import type { AreaOverview, ForecastRow, ObservationRow } from '../lib/api';
+import PeriodForecast from '../components/PeriodForecast.astro';
+import { fetchOverview, fetchForecast, fetchLatestObservation, fetchPeriodForecast } from '../lib/api';
+import type { AreaOverview, ForecastRow, ObservationRow, PeriodForecastRow } from '../lib/api';
 
 // Yosemite Valley is the canonical representative for the Valley & West area.
 const REP_SLUG = 'yosemite-valley';
@@ -12,17 +13,20 @@ const REP_NAME = 'Yosemite Valley';
 let areaData: AreaOverview | undefined;
 let repForecast: ForecastRow[] = [];
 let repObservation: ObservationRow | null = null;
+let repPeriods: PeriodForecastRow[] = [];
 let error: string | null = null;
 
 try {
-  const [allAreas, forecast, observation] = await Promise.all([
+  const [allAreas, forecast, observation, periods] = await Promise.all([
     fetchOverview(),
     fetchForecast(REP_SLUG),
     fetchLatestObservation(REP_SLUG),
+    fetchPeriodForecast(REP_SLUG),
   ]);
   areaData = allAreas.find(a => a.slug === 'valley-west');
   repForecast = forecast;
   repObservation = observation;
+  repPeriods = periods;
 } catch (e) {
   error = e instanceof Error ? e.message : 'Failed to load weather data';
 }
@@ -42,6 +46,8 @@ try {
     )}
 
     <SummaryCard pointName={REP_NAME} observation={repObservation} forecast={repForecast} />
+
+    <PeriodForecast periods={repPeriods} />
 
     {areaData && (
       <ObsTable points={areaData.points} areaSlug="valley-west" />

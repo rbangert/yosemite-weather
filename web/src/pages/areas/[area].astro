@@ -2,17 +2,18 @@
 import Layout from '../../layouts/Layout.astro';
 import ObsTable from '../../components/ObsTable.astro';
 import SummaryCard from '../../components/SummaryCard.astro';
-import { fetchOverview, fetchForecast, fetchLatestObservation } from '../../lib/api';
-import type { AreaOverview, ForecastRow, ObservationRow } from '../../lib/api';
+import PeriodForecast from '../../components/PeriodForecast.astro';
+import { fetchOverview, fetchForecast, fetchLatestObservation, fetchPeriodForecast } from '../../lib/api';
+import type { AreaOverview, ForecastRow, ObservationRow, PeriodForecastRow } from '../../lib/api';
 
 const { area } = Astro.params;
 if (!area) return Astro.redirect('/');
 
-// One representative station per area drives the summary card.
+// One representative station per area drives the summary card and 7-day forecast.
 const AREA_REP: Record<string, { slug: string; name: string }> = {
-  'valley-west':  { slug: 'yosemite-valley',   name: 'Yosemite Valley' },
-  'south':        { slug: 'glacier-point',      name: 'Glacier Point' },
-  'high-country': { slug: 'tuolumne-meadows',   name: 'Tuolumne Meadows' },
+  'valley-west':  { slug: 'yosemite-valley', name: 'Yosemite Valley' },
+  'south':        { slug: 'wawona',           name: 'Wawona' },
+  'high-country': { slug: 'tuolumne-meadows', name: 'Tuolumne Meadows' },
 };
 
 const rep = AREA_REP[area] ?? null;
@@ -20,17 +21,20 @@ const rep = AREA_REP[area] ?? null;
 let areaData: AreaOverview | undefined;
 let repForecast: ForecastRow[] = [];
 let repObservation: ObservationRow | null = null;
+let repPeriods: PeriodForecastRow[] = [];
 let error: string | null = null;
 
 try {
-  const [allAreas, forecast, observation] = await Promise.all([
+  const [allAreas, forecast, observation, periods] = await Promise.all([
     fetchOverview(),
     rep ? fetchForecast(rep.slug) : Promise.resolve([]),
     rep ? fetchLatestObservation(rep.slug) : Promise.resolve(null),
+    rep ? fetchPeriodForecast(rep.slug) : Promise.resolve([]),
   ]);
   areaData = allAreas.find(a => a.slug === area);
   repForecast = forecast;
   repObservation = observation;
+  repPeriods = periods;
 } catch (e) {
   error = e instanceof Error ? e.message : 'Failed to load weather data';
 }
@@ -56,6 +60,8 @@ if (!areaData && !error) {
     {rep && (
       <SummaryCard pointName={rep.name} observation={repObservation} forecast={repForecast} />
     )}
+
+    <PeriodForecast periods={repPeriods} />
 
     {areaData && (
       <ObsTable points={areaData.points} areaSlug={area} />
