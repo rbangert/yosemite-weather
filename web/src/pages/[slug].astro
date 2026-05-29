@@ -1,0 +1,230 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { fetchAreas, fetchForecast, fetchLatestObservation } from '../lib/api';
+import type { ForecastRow, ObservationRow } from '../lib/api';
+
+const { slug } = Astro.params;
+if (!slug) return Astro.redirect('/');
+
+// Resolve point name + area name from /api/areas
+const areas = await fetchAreas();
+let pointName = '';
+let areaName = '';
+for (const area of areas) {
+  const match = area.points.find(p => p.slug === slug);
+  if (match) {
+    pointName = match.name;
+    areaName = area.name;
+    break;
+  }
+}
+
+if (!pointName) {
+  return new Response(null, { status: 404 });
+}
+
+let forecast: ForecastRow[] = [];
+let observation: ObservationRow | null = null;
+let error: string | null = null;
+
+try {
+  [forecast, observation] = await Promise.all([
+    fetchForecast(slug),
+    fetchLatestObservation(slug),
+  ]);
+} catch (e) {
+  error = e instanceof Error ? e.message : 'Failed to load weather data';
+}
+
+function tempColor(t: number | null): string {
+  if (t === null) return 'text-slate-500';
+  if (t < 32) return 'text-blue-300';
+  if (t < 45) return 'text-sky-300';
+  if (t < 60) return 'text-emerald-300';
+  if (t < 72) return 'text-amber-200';
+  if (t < 85) return 'text-orange-300';
+  return 'text-red-400';
+}
+
+function windDir(deg: number | null): string {
+  if (deg === null) return '';
+  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  return dirs[Math.round(deg / 45) % 8];
+}
+
+function fmt(v: number | null, digits = 0): string {
+  if (v === null) return '—';
+  return v.toFixed(digits);
+}
+
+function fmtDateTime(iso: string): string {
+  return new Date(iso).toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  });
+}
+
+function fmtHour(iso: string): string {
+  return new Date(iso).toLocaleString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    hour12: true,
+  });
+}
+
+const current = forecast[0] ?? null;
+---
+
+<Layout title={pointName}>
+  <div class="mx-auto max-w-4xl px-4 py-8">
+    <a
+      href="/"
+      class="mb-6 inline-flex items-center gap-1.5 text-sm text-slate-400 transition-colors hover:text-amber-400"
+    >
+      ← Back to overview
+    </a>
+
+    <div class="mb-8">
+      <div class="mb-1 text-xs font-semibold uppercase tracking-widest text-amber-500">
+        {areaName}
+      </div>
+      <h1 class="text-2xl font-bold text-slate-100">{pointName}</h1>
+    </div>
+
+    {error && (
+      <div class="mb-6 rounded-lg border border-red-800 bg-red-950 p-4 text-sm text-red-300">
+        {error}
+      </div>
+    )}
+
+    <!-- Current conditions panel -->
+    <div class="mb-6 rounded-xl border border-slate-800 bg-slate-900 p-6">
+      <h2 class="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-400">
+        Current Conditions
+      </h2>
+
+      {observation ? (
+        <div>
+          <div class="mb-4 flex flex-wrap items-end gap-3">
+            <div class={`text-5xl font-light tabular-nums ${tempColor(observation.air_temp)}`}>
+              {observation.air_temp !== null ? `${Math.round(observation.air_temp)}°F` : '—°F'}
+            </div>
+            <div class="mb-1 text-sm text-slate-500">
+              observed {fmtDateTime(observation.observed_at)}
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
+            <div>
+              <div class="mb-0.5 text-xs uppercase tracking-wide text-slate-500">Wind</div>
+              <div class="text-slate-200">{fmt(observation.wind_speed)}&thinsp;mph {windDir(observation.wind_direction)}</div>
+              {observation.wind_gust !== null && (
+                <div class="text-xs text-slate-400">Gust {Math.round(observation.wind_gust)}&thinsp;mph</div>
+              )}
+            </div>
+            <div>
+              <div class="mb-0.5 text-xs uppercase tracking-wide text-slate-500">Humidity</div>
+              <div class="text-slate-200">{fmt(observation.relative_humidity)}%</div>
+            </div>
+            <div>
+              <div class="mb-0.5 text-xs uppercase tracking-wide text-slate-500">Precip (1h)</div>
+              <div class="text-slate-200">{fmt(observation.precip_last_hour, 2)}"</div>
+            </div>
+            <div>
+              <div class="mb-0.5 text-xs uppercase tracking-wide text-slate-500">Station</div>
+              <div class="text-xs text-slate-400">{observation.station_id}</div>
+            </div>
+          </div>
+        </div>
+      ) : current ? (
+        <div>
+          <div class="mb-4 flex flex-wrap items-end gap-3">
+            <div class={`text-5xl font-light tabular-nums ${tempColor(current.air_temp)}`}>
+              {current.air_temp !== null ? `${Math.round(current.air_temp)}°F` : '—°F'}
+            </div>
+            <div class="mb-1 text-sm text-slate-500">
+              forecast for {fmtDateTime(current.valid_time)}
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
+            <div>
+              <div class="mb-0.5 text-xs uppercase tracking-wide text-slate-500">Wind</div>
+              <div class="text-slate-200">{fmt(current.wind_speed)}&thinsp;mph {windDir(current.wind_direction)}</div>
+              {current.wind_gust !== null && (
+                <div class="text-xs text-slate-400">Gust {Math.round(current.wind_gust)}&thinsp;mph</div>
+              )}
+            </div>
+            <div>
+              <div class="mb-0.5 text-xs uppercase tracking-wide text-slate-500">Precip %</div>
+              <div class="text-slate-200">{fmt(current.precip_prob)}%</div>
+            </div>
+            <div>
+              <div class="mb-0.5 text-xs uppercase tracking-wide text-slate-500">Humidity</div>
+              <div class="text-slate-200">{fmt(current.relative_humidity)}%</div>
+            </div>
+            <div>
+              <div class="mb-0.5 text-xs uppercase tracking-wide text-slate-500">Sky Cover</div>
+              <div class="text-slate-200">{fmt(current.sky_cover)}%</div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <p class="text-sm text-slate-500">No data available yet.</p>
+      )}
+    </div>
+
+    <!-- 72-hour forecast table -->
+    {forecast.length > 0 && (
+      <div class="overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
+        <div class="border-b border-slate-800 px-6 py-4">
+          <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">
+            72-Hour Forecast
+          </h2>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-slate-800 text-xs font-medium uppercase tracking-wide text-slate-500">
+                <th class="px-6 py-3 text-left">Time</th>
+                <th class="px-4 py-3 text-right">Temp</th>
+                <th class="px-4 py-3 text-right">Wind</th>
+                <th class="px-4 py-3 text-right">Precip%</th>
+                <th class="px-4 py-3 text-right">Sky%</th>
+                <th class="hidden px-4 py-3 text-right sm:table-cell">RH%</th>
+                <th class="hidden px-6 py-3 text-right md:table-cell">Snow"</th>
+              </tr>
+            </thead>
+            <tbody>
+              {forecast.map((row, i) => (
+                <tr class={`border-b border-slate-800/40 ${i % 2 !== 0 ? 'bg-slate-800/20' : ''}`}>
+                  <td class="whitespace-nowrap px-6 py-2.5 text-slate-400">{fmtHour(row.valid_time)}</td>
+                  <td class={`px-4 py-2.5 text-right tabular-nums font-medium ${tempColor(row.air_temp)}`}>
+                    {row.air_temp !== null ? `${Math.round(row.air_temp)}°` : '—'}
+                  </td>
+                  <td class="px-4 py-2.5 text-right tabular-nums text-slate-300">
+                    {fmt(row.wind_speed)}&thinsp;<span class="text-xs text-slate-500">{windDir(row.wind_direction)}</span>
+                  </td>
+                  <td class="px-4 py-2.5 text-right tabular-nums text-slate-300">{fmt(row.precip_prob)}</td>
+                  <td class="px-4 py-2.5 text-right tabular-nums text-slate-300">{fmt(row.sky_cover)}</td>
+                  <td class="hidden px-4 py-2.5 text-right tabular-nums text-slate-400 sm:table-cell">
+                    {fmt(row.relative_humidity)}
+                  </td>
+                  <td class="hidden px-6 py-2.5 text-right tabular-nums md:table-cell">
+                    {row.snowfall_amount !== null && row.snowfall_amount > 0
+                      ? <span class="text-indigo-400">{row.snowfall_amount.toFixed(1)}</span>
+                      : <span class="text-slate-700">—</span>
+                    }
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )}
+  </div>
+</Layout>
