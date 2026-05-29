@@ -202,6 +202,57 @@ const conv = (m: any, f: (v: number) => number): number | null => {
   return v == null ? null : f(v);
 };
 
+// --- Alerts -----------------------------------------------------------------
+
+export interface NwsAlert {
+  id: string;
+  event: string;
+  severity: string;
+  urgency: string;
+  certainty: string;
+  headline: string | null;
+  description: string | null;
+  instruction: string | null;
+  areaDesc: string | null;
+  effective: string | null;
+  onset: string | null;
+  expires: string;
+  ends: string | null;
+}
+
+// Fetch all currently active alerts for the given NWS zone IDs. Deduplicates
+// alerts that appear in multiple zones (same NWS alert ID).
+export async function fetchActiveAlerts(zones: string[]): Promise<NwsAlert[]> {
+  const seen = new Set<string>();
+  const alerts: NwsAlert[] = [];
+
+  for (const zone of zones) {
+    const data = await nwsFetch(`${config.nwsBaseUrl}/alerts/active/zone/${zone}`);
+    for (const feature of data.features ?? []) {
+      const p = feature.properties;
+      if (!p?.id || seen.has(p.id)) continue;
+      seen.add(p.id);
+      alerts.push({
+        id: p.id,
+        event: p.event ?? "Unknown",
+        severity: p.severity ?? "Unknown",
+        urgency: p.urgency ?? "Unknown",
+        certainty: p.certainty ?? "Unknown",
+        headline: p.headline ?? null,
+        description: p.description ?? null,
+        instruction: p.instruction ?? null,
+        areaDesc: p.areaDesc ?? null,
+        effective: p.effective ?? null,
+        onset: p.onset ?? null,
+        expires: p.expires,
+        ends: p.ends ?? null,
+      });
+    }
+  }
+
+  return alerts;
+}
+
 export async function fetchLatestObservation(
   stationId: string
 ): Promise<LatestObservation | null> {

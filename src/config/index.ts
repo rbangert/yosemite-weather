@@ -16,6 +16,9 @@ export const config = {
   retryMaxAttempts: Number(process.env.NWS_RETRY_MAX_ATTEMPTS) || 3,
   retryBaseDelayMs: Number(process.env.NWS_RETRY_BASE_DELAY_MS) || 500,
 
+  // NWS alert zones to poll. Defaults cover Yosemite Valley + Central Sierra fire weather.
+  alertZones: (process.env.NWS_ALERT_ZONES ?? "CAZ324,CAZ592").split(",").filter(Boolean),
+
   // Synoptic Mesonet API (https://developers.synopticdata.com/)
   // Set SYNOPTIC_API_TOKEN to enable; leave unset to disable Synoptic entirely.
   synopticApiToken: process.env.SYNOPTIC_API_TOKEN ?? "",

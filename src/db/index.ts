@@ -87,6 +87,27 @@ export function setupSchema(): void {
     ON observations(point_slug, observed_at DESC)
   `);
 
+  // NWS active alerts — park-wide watches/warnings/advisories. One row per NWS
+  // alert ID; upserted on each poll so headline/description stay current.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS alerts (
+      id TEXT PRIMARY KEY,
+      event TEXT NOT NULL,
+      severity TEXT,
+      urgency TEXT,
+      certainty TEXT,
+      headline TEXT,
+      description TEXT,
+      instruction TEXT,
+      area_desc TEXT,
+      effective TEXT,
+      onset TEXT,
+      expires TEXT NOT NULL,
+      ends TEXT,
+      fetched_at TEXT NOT NULL
+    )
+  `);
+
   // Migrations for columns added after initial schema.
   try { db.run(`ALTER TABLE observations ADD COLUMN snow_depth REAL`); } catch {}
   try { db.run(`ALTER TABLE observations ADD COLUMN source TEXT NOT NULL DEFAULT 'nws'`); } catch {}
@@ -145,8 +166,12 @@ export function pruneOldData(): { forecasts: number; observations: number } {
 
   const f = db.prepare(`DELETE FROM forecasts WHERE valid_time < ?`).run(nowHour);
   const o = db.prepare(`DELETE FROM observations WHERE observed_at < ?`).run(obsCutoff);
+  // Remove alerts that have fully expired (use ends when present, else expires).
+  const a = db.prepare(
+    `DELETE FROM alerts WHERE COALESCE(ends, expires) < ?`
+  ).run(new Date().toISOString());
 
-  return { forecasts: f.changes, observations: o.changes };
+  return { forecasts: f.changes, observations: o.changes, alerts: a.changes };
 }
 
 export function closeDb(): void {

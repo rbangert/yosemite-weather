@@ -418,6 +418,7 @@ adapted for Yosemite. Milestones are ordered roughly by priority; checked items 
 - [ ] Additional chart series — wind & gusts, humidity, sky cover, snow level (toggleable)
 - [ ] Wind direction compass / barbs
 - [ ] Unit toggle (°F/°C, mph/kph, in/cm)
+- [ ] WBGT (wet bulb globe temperature / heat stress) indicator on detail page — available from NWS raw gridpoint
 
 #### Milestone 4 — Snow & avalanche
 
@@ -435,7 +436,10 @@ adapted for Yosemite. Milestones are ordered roughly by priority; checked items 
 
 #### Milestone 6 — Alerts & conditions
 
-- [ ] NWS active alerts (watches / warnings) banner _(ccweather: alerts)_
+- [x] NWS active alerts (watches / warnings / advisories) banner — weather zone CAZ324 + fire weather zone CAZ592 _(ccweather: alerts)_
+- [ ] Fire weather text products — daily FWF narrative from NWS Hanford office (HNX)
+- [ ] Multi-location observation comparison table — Valley / Tuolumne / Wawona stations side-by-side
+- [ ] NWS hourly forecast enrichment — apparent temperature, WBGT from raw gridpoint
 - [ ] Road status & closures (Tioga / Glacier Point roads via NPS) _(ccweather: road alerts)_
 - [ ] Sunrise / sunset & moon phase per location
 
@@ -450,7 +454,10 @@ adapted for Yosemite. Milestones are ordered roughly by priority; checked items 
 
 ## Backend Roadmap
 
-- [ ] Synoptic Data API integration for wind data not available through NWS.
+- [x] Synoptic Data API integration for wind/obs data not available through NWS.
+- [x] NWS active-alerts polling + passthrough endpoint (weather zone CAZ324 + fire weather zone CAZ592).
 - [ ] SNOTEL ingestion — snow depth & snow water equivalent (feeds Milestone 4).
-- [ ] NWS active-alerts passthrough endpoint (feeds Milestone 6).
 - [ ] Daily forecast aggregation endpoint for the 7-day cards (feeds Milestone 3).
+- [ ] WBGT field ingestion from NWS raw gridpoint — extend forecasts table.
+- [ ] Fire weather text product ingestion — FWF/AFD from NWS `/products` endpoint.
+- [ ] Apparent temperature (feels-like) from NWS raw gridpoint — extend forecasts table.

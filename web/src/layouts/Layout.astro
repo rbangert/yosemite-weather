@@ -1,5 +1,6 @@
 ---
 import '../styles/global.css';
+import AlertsBanner from '../components/AlertsBanner.astro';
 
 interface Props {
   title: string;
@@ -52,6 +53,8 @@ const areaLinks = [
         </div>
       </div>
     </nav>
+
+    <AlertsBanner />
 
     <main>
       <slot />

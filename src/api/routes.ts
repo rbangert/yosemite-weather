@@ -18,6 +18,7 @@ export function handleRequest(req: Request): Response {
   const latest = pathname.match(/^\/api\/points\/([^/]+)\/observations\/latest$/);
   if (latest) return handleLatestObservation(latest[1]);
 
+  if (pathname === "/api/alerts") return handleAlerts();
   if (pathname === "/api/data-explorer") return handleDataExplorer();
 
   return json({ error: "Not found" }, 404);
@@ -131,6 +132,28 @@ function handleLatestObservation(slug: string): Response {
 
   if (!row) return json({ error: "No observations available for this point" }, 404);
   return json(row);
+}
+
+// Active NWS alerts (not yet expired). Ordered most-severe first.
+function handleAlerts(): Response {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const severityOrder = `CASE severity
+    WHEN 'Extreme'  THEN 0
+    WHEN 'Severe'   THEN 1
+    WHEN 'Moderate' THEN 2
+    WHEN 'Minor'    THEN 3
+    ELSE 4 END`;
+  const rows = db
+    .prepare(
+      `SELECT id, event, severity, urgency, certainty, headline, description,
+              instruction, area_desc, effective, onset, expires, ends, fetched_at
+       FROM alerts
+       WHERE COALESCE(ends, expires) > ?
+       ORDER BY ${severityOrder}, onset ASC`
+    )
+    .all(now);
+  return json(rows);
 }
 
 // Aggregated payload for the data-explorer visualisation page.

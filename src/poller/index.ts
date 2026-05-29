@@ -4,8 +4,10 @@ import {
   resolvePoint,
   fetchGridpointForecast,
   fetchLatestObservation,
+  fetchActiveAlerts,
   type ForecastHour,
   type LatestObservation,
+  type NwsAlert,
 } from "../nws/client";
 import {
   findNearestStation,
@@ -55,16 +57,18 @@ export async function poll(): Promise<{ forecasts: number; observations: number 
     }
   }
 
+  const alertCount = await pollAlerts();
+
   const pruned = pruneOldData();
   console.log(
-    `Stored ${forecastCount} forecast hours, ${obsCount} new observations at ${new Date().toISOString()}`
+    `Stored ${forecastCount} forecast hours, ${obsCount} new observations, ${alertCount} alerts at ${new Date().toISOString()}`
   );
-  if (pruned.forecasts > 0 || pruned.observations > 0) {
+  if (pruned.forecasts > 0 || pruned.observations > 0 || pruned.alerts > 0) {
     console.log(
-      `Pruned ${pruned.forecasts} past forecast hours, ${pruned.observations} old observations`
+      `Pruned ${pruned.forecasts} past forecast hours, ${pruned.observations} old observations, ${pruned.alerts} expired alerts`
     );
   }
-  return { forecasts: forecastCount, observations: obsCount };
+  return { forecasts: forecastCount, observations: obsCount, alerts: alertCount };
 }
 
 // Resolve a point's NWS grid + nearest station once, then cache it.
@@ -159,6 +163,56 @@ function writeObservation(slug: string, stationId: string, obs: LatestObservatio
       obs.precipLastHour, obs.snowDepth
     );
   return result.changes > 0 ? 1 : 0;
+}
+
+// --- Alert polling ----------------------------------------------------------
+
+async function pollAlerts(): Promise<number> {
+  if (config.alertZones.length === 0) return 0;
+  try {
+    const alerts = await fetchActiveAlerts(config.alertZones);
+    return writeAlerts(alerts);
+  } catch (err) {
+    console.error(`Alert poll failed: ${(err as Error).message}`);
+    return 0;
+  }
+}
+
+function writeAlerts(alerts: NwsAlert[]): number {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const upsert = db.prepare(`
+    INSERT INTO alerts (
+      id, event, severity, urgency, certainty, headline, description,
+      instruction, area_desc, effective, onset, expires, ends, fetched_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      event = excluded.event,
+      severity = excluded.severity,
+      urgency = excluded.urgency,
+      certainty = excluded.certainty,
+      headline = excluded.headline,
+      description = excluded.description,
+      instruction = excluded.instruction,
+      area_desc = excluded.area_desc,
+      effective = excluded.effective,
+      onset = excluded.onset,
+      expires = excluded.expires,
+      ends = excluded.ends,
+      fetched_at = excluded.fetched_at
+  `);
+
+  const tx = db.transaction(() => {
+    for (const a of alerts) {
+      upsert.run(
+        a.id, a.event, a.severity, a.urgency, a.certainty, a.headline,
+        a.description, a.instruction, a.areaDesc, a.effective, a.onset,
+        a.expires, a.ends, now
+      );
+    }
+  });
+  tx();
+  return alerts.length;
 }
 
 // --- Synoptic polling -------------------------------------------------------

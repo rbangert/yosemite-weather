@@ -72,6 +72,35 @@ export async function fetchLatestObservation(slug: string): Promise<ObservationR
   return res.json() as Promise<ObservationRow>;
 }
 
+// --- Alerts -----------------------------------------------------------------
+
+export interface AlertRow {
+  id: string;
+  event: string;
+  severity: string;
+  urgency: string;
+  certainty: string;
+  headline: string | null;
+  description: string | null;
+  instruction: string | null;
+  area_desc: string | null;
+  effective: string | null;
+  onset: string | null;
+  expires: string;
+  ends: string | null;
+  fetched_at: string;
+}
+
+export async function fetchAlerts(): Promise<AlertRow[]> {
+  try {
+    const res = await fetch(`${API_BASE}/api/alerts`);
+    if (!res.ok) return [];
+    return res.json() as Promise<AlertRow[]>;
+  } catch {
+    return [];
+  }
+}
+
 // --- Data Explorer ----------------------------------------------------------
 
 export interface ObsHistoryRow {
