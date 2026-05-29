@@ -1,5 +1,6 @@
 ---
 import Layout from '../layouts/Layout.astro';
+import ForecastChart from '../components/ForecastChart.astro';
 import { fetchAreas, fetchForecast, fetchLatestObservation } from '../lib/api';
 import type { ForecastRow, ObservationRow } from '../lib/api';
 
@@ -176,6 +177,13 @@ const current = forecast[0] ?? null;
         <p class="text-sm text-slate-500">No data available yet.</p>
       )}
     </div>
+
+    <!-- Forecast chart -->
+    {forecast.length > 0 && (
+      <div class="mb-6">
+        <ForecastChart forecast={forecast} />
+      </div>
+    )}
 
     <!-- 72-hour forecast table -->
     {forecast.length > 0 && (

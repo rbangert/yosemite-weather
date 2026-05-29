@@ -1,9 +1,11 @@
-# Yosemite Weather Backend
+# Yosemite Weather
 
-Bun-based backend that polls the [NWS / NOAA API](https://www.weather.gov/documentation/services-web-api)
-for Yosemite National Park locations and serves the data over a REST API backed by SQLite.
+Full-stack weather app for Yosemite National Park. A Bun backend polls the
+[NWS / NOAA API](https://www.weather.gov/documentation/services-web-api) for a set
+of park locations and serves the data over a REST API backed by SQLite; an Astro
+frontend (in [`web/`](web/)) renders an overview and per-location detail pages.
 
-For each configured point it collects:
+For each configured point the backend collects:
 
 - **Forecasts** — NWS gridpoint hourly forecast (temperature, wind, gusts, precip
   probability, humidity, snowfall, snow level, sky cover). Available for every point.
@@ -12,6 +14,75 @@ For each configured point it collects:
 
 The NWS API is free and requires no token — only a `User-Agent` header identifying
 the app and a contact email.
+
+## Architecture
+
+The backend has two independent halves sharing one SQLite database: a **poller**
+that writes weather data on an interval, and a **REST API** that reads it. The
+Astro frontend is a separate process that fetches from the API server-side.
+
+```mermaid
+flowchart LR
+    NWS["NWS / NOAA API"]
+
+    subgraph Backend["Backend — Bun process"]
+        direction TB
+        Poller["Poller<br/>(setInterval loop)"]
+        API["REST API<br/>(Bun.serve)"]
+        DB[("SQLite<br/>weather.db")]
+        Poller -->|"upsert forecasts<br/>+ observations"| DB
+        DB -->|read| API
+    end
+
+    subgraph Frontend["Frontend — Astro SSR"]
+        Pages["Pages<br/>overview + /:slug detail"]
+    end
+
+    Browser["Browser"]
+
+    NWS -->|"forecast + observations"| Poller
+    Pages -->|"fetch JSON (server-side)"| API
+    Browser -->|HTTP| Pages
+```
+
+Both halves start from [`src/index.ts`](src/index.ts): it initializes the schema,
+starts the API server, runs an initial poll, then schedules subsequent polls every
+`POLL_INTERVAL_MS`.
+
+### The poll cycle
+
+A single `poll()` pass walks every configured point. The first time a point is seen
+its NWS grid cell and nearest station are resolved and cached; later polls reuse the
+cached resolution. A failure on one point is logged and skipped without aborting the
+cycle.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Timer as setInterval
+    participant Poll as poll()
+    participant DB as SQLite
+    participant NWS as NWS API
+
+    Timer->>Poll: every POLL_INTERVAL_MS
+    Poll->>DB: SELECT points
+    loop each point
+        opt grid not yet resolved
+            Poll->>NWS: GET /points/{lat,lon}
+            NWS-->>Poll: gridId, gridX/Y, station
+            Poll->>DB: cache resolution
+        end
+        Poll->>NWS: GET /gridpoints/... (hourly forecast)
+        NWS-->>Poll: forecast layers
+        Poll->>DB: upsert forecasts (point, hour)
+        opt station exists
+            Poll->>NWS: GET /stations/{id}/observations/latest
+            NWS-->>Poll: latest reading
+            Poll->>DB: insert observation (ignore duplicate)
+        end
+    end
+    Poll->>DB: prune past forecasts + old observations
+```
 
 ## Setup
 
@@ -84,6 +155,54 @@ stale when the most recent forecast write is older than twice the poll interval.
 
 The schema lives in `src/db/index.ts`. Three SQLite tables, all storing English
 units. Any numeric weather field may be `null` when NWS has no value for it.
+
+```mermaid
+erDiagram
+    points ||--o{ forecasts : "hourly forecast"
+    points ||--o{ observations : "station readings"
+
+    points {
+        text slug PK
+        text name
+        text area_slug
+        text area_name
+        real latitude
+        real longitude
+        text grid_id "cached"
+        int grid_x "cached"
+        int grid_y "cached"
+        text observation_station_id "cached, nullable"
+        text resolved_at
+    }
+    forecasts {
+        int id PK
+        text point_slug FK
+        text valid_time "UTC hour"
+        text fetched_at
+        real air_temp
+        real wind_speed
+        real wind_gust
+        real wind_direction
+        real precip_prob
+        real relative_humidity
+        real snowfall_amount
+        real snow_level
+        real sky_cover
+    }
+    observations {
+        int id PK
+        text point_slug FK
+        text station_id
+        text observed_at
+        text polled_at
+        real air_temp
+        real wind_speed
+        real wind_gust
+        real wind_direction
+        real relative_humidity
+        real precip_last_hour
+    }
+```
 
 ### `points`
 
@@ -193,26 +312,84 @@ Points and areas are defined in `src/config/index.ts`. Each point is a name +
 latitude/longitude; edit the `areas` array to add or regroup locations. Coordinates
 for the default Yosemite set come from `locations.md`.
 
+## Frontend
+
+An [Astro](https://astro.build) app in [`web/`](web/), running in SSR (`output: 'server'`)
+mode with [Tailwind CSS v4](https://tailwindcss.com) via the `@tailwindcss/vite` plugin.
+Data is fetched **server-side** in each page's frontmatter, so pages render as plain
+HTML with no client-side data fetching required.
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant A as Astro SSR (:4321)
+    participant API as Backend API (:3000)
+    participant DB as SQLite
+
+    B->>A: GET / (overview)
+    A->>API: GET /api/overview
+    API->>DB: current-hour forecast + latest obs
+    DB-->>API: rows
+    API-->>A: JSON grouped by area
+    A-->>B: rendered HTML (Tailwind)
+```
+
+### Pages
+
+| Route | File | Shows |
+|---|---|---|
+| `/` | `src/pages/index.astro` | Overview grid — every point grouped by area, temperature color-coded, with wind and precip |
+| `/:slug` | `src/pages/[slug].astro` | Location detail — current conditions panel + 72-hour forecast table |
+
+The typed API client lives in `web/src/lib/api.ts`. The backend base URL defaults to
+`http://localhost:3000` and can be overridden with the `API_BASE` environment variable.
+
+### Running the frontend
+
+```bash
+cd web
+bun install
+bun run dev          # Astro dev server on http://localhost:4321
+```
+
+The backend API must be running (`bun run dev` from the repo root) for the frontend
+to load data. Other scripts: `bun run build` (production build), `bun run check`
+(type-check `.astro` + `.ts`).
+
 ## Project Structure
 
 ```
-src/
-├── index.ts            # Entry point — starts API + polling loop
-├── config/
-│   └── index.ts        # Env vars, point/area definitions
-├── api/
-│   ├── server.ts       # Bun.serve HTTP server
-│   └── routes.ts       # Route handlers
-├── db/
-│   ├── index.ts        # Connection, schema, point seeding
-│   └── setup.ts        # DB initialization script
-├── nws/
-│   └── client.ts       # NWS API client (resolve, forecast, observations)
-└── poller/
-    ├── index.ts        # Poll cycle — fetch + write to DB
-    └── poll.ts         # Standalone poll script
+.
+├── src/                    # Backend (Bun)
+│   ├── index.ts            # Entry point — starts API + polling loop
+│   ├── config/
+│   │   └── index.ts        # Env vars, point/area definitions
+│   ├── api/
+│   │   ├── server.ts       # Bun.serve HTTP server
+│   │   └── routes.ts       # Route handlers
+│   ├── db/
+│   │   ├── index.ts        # Connection, schema, point seeding
+│   │   └── setup.ts        # DB initialization script
+│   ├── nws/
+│   │   └── client.ts       # NWS API client (resolve, forecast, observations)
+│   └── poller/
+│       ├── index.ts        # Poll cycle — fetch + write to DB
+│       └── poll.ts         # Standalone poll script
+└── web/                    # Frontend (Astro + Tailwind)
+    ├── astro.config.mjs    # SSR output + Tailwind Vite plugin
+    └── src/
+        ├── layouts/        # Layout.astro — page shell + nav
+        ├── lib/api.ts      # Typed backend API client
+        ├── pages/          # index.astro (overview), [slug].astro (detail)
+        └── styles/         # global.css (@import "tailwindcss")
 ```
 
 ## Roadmap
 
+- **Forecast charts on the detail page** — visualize the 72-hour series (temperature,
+  precip probability, wind) instead of only the table. Planned library: **Chart.js**,
+  mounted in an Astro island. It is framework-agnostic (no React/Vue needed), has
+  first-class time-series support, and its ergonomics suit our small per-point datasets.
+  [uPlot](https://github.com/leeoniya/uPlot) is the fallback if we ever need many charts
+  or live streaming — far smaller and faster, but a lower-level API.
 - Synoptic Data API integration for wind data not available through NWS.

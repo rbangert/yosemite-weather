@@ -1,0 +1,140 @@
+---
+import type { ForecastRow } from '../lib/api';
+
+interface Props {
+  forecast: ForecastRow[];
+}
+
+const { forecast } = Astro.props;
+
+// Shape a compact payload server-side; the client script reads it off the canvas.
+const points = forecast.map(row => ({
+  t: row.valid_time,
+  temp: row.air_temp,
+  precip: row.precip_prob,
+}));
+---
+
+<div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
+  <div class="mb-4 flex items-center justify-between">
+    <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">
+      Temperature &amp; Precipitation
+    </h2>
+    <div class="flex gap-4 text-xs">
+      <span class="flex items-center gap-1.5 text-slate-400">
+        <span class="inline-block h-0.5 w-3 bg-amber-400"></span>Temp °F
+      </span>
+      <span class="flex items-center gap-1.5 text-slate-400">
+        <span class="inline-block h-2 w-3 bg-sky-400/50"></span>Precip %
+      </span>
+    </div>
+  </div>
+  <div class="relative h-64">
+    <canvas id="forecast-chart" data-forecast={JSON.stringify(points)}></canvas>
+  </div>
+</div>
+
+<script>
+  import {
+    Chart,
+    LineController,
+    BarController,
+    LineElement,
+    BarElement,
+    PointElement,
+    LinearScale,
+    CategoryScale,
+    Tooltip,
+    Filler,
+  } from 'chart.js';
+
+  Chart.register(
+    LineController,
+    BarController,
+    LineElement,
+    BarElement,
+    PointElement,
+    LinearScale,
+    CategoryScale,
+    Tooltip,
+    Filler,
+  );
+
+  type Point = { t: string; temp: number | null; precip: number | null };
+
+  const canvas = document.getElementById('forecast-chart') as HTMLCanvasElement | null;
+  const raw = canvas?.dataset.forecast;
+
+  if (canvas && raw) {
+    const rows: Point[] = JSON.parse(raw);
+
+    const labels = rows.map(r =>
+      new Date(r.t).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', hour12: true }),
+    );
+
+    new Chart(canvas, {
+      data: {
+        labels,
+        datasets: [
+          {
+            type: 'line',
+            label: 'Temp (°F)',
+            data: rows.map(r => r.temp),
+            yAxisID: 'yTemp',
+            borderColor: '#fbbf24',
+            backgroundColor: 'rgba(251, 191, 36, 0.12)',
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            tension: 0.3,
+            fill: true,
+            spanGaps: true,
+          },
+          {
+            type: 'bar',
+            label: 'Precip (%)',
+            data: rows.map(r => r.precip),
+            yAxisID: 'yPrecip',
+            backgroundColor: 'rgba(56, 189, 248, 0.35)',
+            borderColor: 'rgba(56, 189, 248, 0.55)',
+            borderWidth: 1,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        scales: {
+          x: {
+            grid: { color: 'rgba(148, 163, 184, 0.08)' },
+            ticks: { color: '#94a3b8', maxTicksLimit: 12, autoSkip: true, maxRotation: 0 },
+          },
+          yTemp: {
+            position: 'left',
+            grid: { color: 'rgba(148, 163, 184, 0.08)' },
+            ticks: { color: '#fbbf24', callback: value => `${value}°` },
+          },
+          yPrecip: {
+            position: 'right',
+            min: 0,
+            max: 100,
+            grid: { drawOnChartArea: false },
+            ticks: { color: '#38bdf8', callback: value => `${value}%` },
+          },
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#1e293b',
+            borderColor: '#334155',
+            borderWidth: 1,
+            titleColor: '#f1f5f9',
+            bodyColor: '#cbd5e1',
+            padding: 10,
+          },
+        },
+      },
+    });
+  }
+</script>
