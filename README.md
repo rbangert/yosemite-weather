@@ -58,9 +58,27 @@ backoff — `NWS_RETRY_MAX_ATTEMPTS` (default 3), `NWS_RETRY_BASE_DELAY_MS` (def
 | `GET /api/overview` | Current-hour forecast + latest observation for every point, grouped by area |
 | `GET /api/points/:slug/forecast?hours=24` | Hourly forecast for the next N hours |
 | `GET /api/points/:slug/observations/latest` | Most recent observation (if a station is available) |
-| `GET /health` | Health check |
+| `GET /health` | Health check with last-poll staleness (see below) |
 
 Units are English: °F, mph, inches, feet, percent, degrees.
+
+### `GET /health`
+
+Reports freshness and coverage. Returns `200` when healthy and `503` when the
+data is stale or missing, so it can back an uptime probe. Data is considered
+stale when the most recent forecast write is older than twice the poll interval.
+
+```jsonc
+{
+  "status": "ok",                       // "ok" | "stale" | "no_data"
+  "lastPollAt": "2026-05-29T00:01:46.024Z",
+  "ageSeconds": 2,
+  "staleThresholdSeconds": 1800,
+  "points": { "total": 25, "resolved": 25, "withObservations": 25 },
+  "forecastRows": 1825,
+  "observationRows": 40
+}
+```
 
 ## Data Model
 

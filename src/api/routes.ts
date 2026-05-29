@@ -1,11 +1,11 @@
 import { getDb } from "../db";
-import { areas } from "../config";
+import { areas, config } from "../config";
 
 export function handleRequest(req: Request): Response {
   const url = new URL(req.url);
   const { pathname } = url;
 
-  if (pathname === "/health") return json({ status: "ok" });
+  if (pathname === "/health") return handleHealth();
   if (pathname === "/api/areas") return json(areas);
   if (pathname === "/api/overview") return handleOverview();
 
@@ -19,6 +19,42 @@ export function handleRequest(req: Request): Response {
   if (latest) return handleLatestObservation(latest[1]);
 
   return json({ error: "Not found" }, 404);
+}
+
+// Health check with last-poll staleness. Returns 503 when data is stale or
+// missing so it can back a real uptime probe. "Stale" means the most recent
+// forecast write is older than twice the poll interval.
+function handleHealth(): Response {
+  const db = getDb();
+  const lastPoll = (db.prepare(`SELECT MAX(fetched_at) m FROM forecasts`).get() as any).m as
+    | string
+    | null;
+  const points = db
+    .prepare(`SELECT COUNT(*) total, COUNT(grid_id) resolved FROM points`)
+    .get() as { total: number; resolved: number };
+  const withObservations = (
+    db.prepare(`SELECT COUNT(DISTINCT point_slug) c FROM observations`).get() as { c: number }
+  ).c;
+
+  const staleThresholdMs = config.pollIntervalMs * 2;
+  const ageMs = lastPoll ? Date.now() - new Date(lastPoll).getTime() : null;
+
+  const status =
+    lastPoll == null ? "no_data" : ageMs! > staleThresholdMs ? "stale" : "ok";
+
+  return json(
+    {
+      status,
+      lastPollAt: lastPoll,
+      ageSeconds: ageMs == null ? null : Math.round(ageMs / 1000),
+      staleThresholdSeconds: Math.round(staleThresholdMs / 1000),
+      points: { total: points.total, resolved: points.resolved, withObservations },
+      forecastRows: (db.prepare(`SELECT COUNT(*) c FROM forecasts`).get() as { c: number }).c,
+      observationRows: (db.prepare(`SELECT COUNT(*) c FROM observations`).get() as { c: number })
+        .c,
+    },
+    status === "ok" ? 200 : 503
+  );
 }
 
 // Latest forecast hour (closest to now) + latest observation per point, grouped by area.
