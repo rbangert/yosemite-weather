@@ -1,0 +1,497 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { fetchDataExplorer } from '../lib/api';
+import type { DataExplorerPayload, ForecastRow, ObsHistoryRow } from '../lib/api';
+
+let data: DataExplorerPayload | null = null;
+let error: string | null = null;
+
+try {
+  data = await fetchDataExplorer();
+} catch (e) {
+  error = e instanceof Error ? e.message : 'Failed to load data';
+}
+
+const { summary, samplePoint, coverage } = data ?? { summary: null, samplePoint: null, coverage: [] };
+
+// --- Helpers ----------------------------------------------------------------
+
+function relAge(iso: string | null): string {
+  if (!iso) return '—';
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const h = Math.floor(mins / 60);
+  return `${h}h ${mins % 60 > 0 ? `${mins % 60}m ` : ''}ago`;
+}
+
+function windDir8(deg: number | null): string {
+  if (deg === null) return '—';
+  const dirs = ['N','NE','E','SE','S','SW','W','NW'];
+  return dirs[Math.round(deg / 45) % 8];
+}
+
+function fmt(v: number | null, decimals = 0, unit = ''): string {
+  if (v === null) return '—';
+  return `${v.toFixed(decimals)}${unit}`;
+}
+
+function tempColor(t: number | null): string {
+  if (t === null) return 'text-slate-500';
+  if (t < 32) return 'text-blue-300';
+  if (t < 45) return 'text-sky-300';
+  if (t < 60) return 'text-emerald-300';
+  if (t < 72) return 'text-amber-200';
+  if (t < 85) return 'text-orange-300';
+  return 'text-red-400';
+}
+
+// Group coverage by area for display
+import type { CoverageRow } from '../lib/api';
+const byArea: Record<string, CoverageRow[]> = {};
+for (const row of coverage) {
+  (byArea[row.area_name] ??= []).push(row);
+}
+
+// Serialise chart payload server-side (all 8 forecast variables)
+const chartPayload = samplePoint ? JSON.stringify(
+  samplePoint.forecast.map((r: ForecastRow) => ({
+    t: r.valid_time,
+    temp: r.air_temp,
+    wind: r.wind_speed,
+    gust: r.wind_gust,
+    windDir: r.wind_direction,
+    precip: r.precip_prob,
+    rh: r.relative_humidity,
+    snow: r.snowfall_amount,
+    snowLvl: r.snow_level,
+    sky: r.sky_cover,
+  }))
+) : '[]';
+---
+
+<Layout title="Data Explorer">
+  <div class="mx-auto max-w-7xl px-4 py-10">
+
+    <div class="mb-8">
+      <h1 class="text-2xl font-bold text-slate-100">Data Explorer</h1>
+      <p class="mt-1 text-sm text-slate-500">Live view of everything in the database — all forecast variables, observation history, and point coverage.</p>
+    </div>
+
+    {error && (
+      <div class="mb-6 rounded-lg border border-red-800 bg-red-950/50 px-4 py-3 text-sm text-red-300">{error}</div>
+    )}
+
+    <!-- ── DB Summary ──────────────────────────────────────────────────── -->
+    {summary && (
+      <section class="mb-10">
+        <h2 class="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-400">Database Summary</h2>
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {[
+            { label: 'Active forecast rows', value: summary.activeForecastRows.toLocaleString(), sub: `across ${summary.pointsWithForecasts} of ${summary.totalPoints} points` },
+            { label: 'Last polled', value: summary.lastFetchedAt ? relAge(summary.lastFetchedAt) : 'never', sub: summary.lastFetchedAt ? new Date(summary.lastFetchedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '—' },
+            { label: 'Observation rows', value: summary.totalObservationRows.toLocaleString(), sub: `${summary.nwsObsRows} NWS · ${summary.synopticObsRows} Synoptic` },
+            { label: 'Points with obs', value: `${summary.pointsWithObservations} / ${summary.totalPoints}`, sub: summary.pointsWithObservations === 0 ? 'No station data yet' : 'stations resolved' },
+          ].map(card => (
+            <div class="rounded-xl border border-slate-800 bg-slate-900 px-5 py-4">
+              <div class="text-xs text-slate-500">{card.label}</div>
+              <div class="mt-1 text-2xl font-bold tabular-nums text-slate-100">{card.value}</div>
+              <div class="mt-0.5 text-xs text-slate-600">{card.sub}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+    )}
+
+    <!-- ── Forecast Charts ────────────────────────────────────────────── -->
+    {samplePoint && (
+      <section class="mb-10">
+        <h2 class="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-400">72-hour Forecast</h2>
+        <p class="mb-4 text-sm text-slate-500">Sample point: <span class="font-medium text-slate-300">{samplePoint.name}</span> — all 8 stored variables.</p>
+
+        <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+
+          <!-- Chart 1: Temperature + Sky Cover -->
+          <div class="rounded-xl border border-slate-800 bg-slate-900 p-5">
+            <div class="mb-3 flex items-center justify-between">
+              <h3 class="text-sm font-semibold text-slate-300">Temperature &amp; Sky Cover</h3>
+              <div class="flex gap-3 text-xs text-slate-500">
+                <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-4 rounded bg-amber-400"></span>Temp °F</span>
+                <span class="flex items-center gap-1.5"><span class="inline-block h-3 w-4 rounded bg-slate-600/80"></span>Sky %</span>
+              </div>
+            </div>
+            <div class="h-52"><canvas id="chart-temp-sky"></canvas></div>
+          </div>
+
+          <!-- Chart 2: Wind Speed + Gust -->
+          <div class="rounded-xl border border-slate-800 bg-slate-900 p-5">
+            <div class="mb-3 flex items-center justify-between">
+              <h3 class="text-sm font-semibold text-slate-300">Wind Speed &amp; Gust</h3>
+              <div class="flex gap-3 text-xs text-slate-500">
+                <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-4 rounded bg-sky-400"></span>Speed mph</span>
+                <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-4 rounded border-t-2 border-dashed border-sky-300"></span>Gust mph</span>
+              </div>
+            </div>
+            <div class="h-52"><canvas id="chart-wind"></canvas></div>
+          </div>
+
+          <!-- Chart 3: Precip Probability + Relative Humidity -->
+          <div class="rounded-xl border border-slate-800 bg-slate-900 p-5">
+            <div class="mb-3 flex items-center justify-between">
+              <h3 class="text-sm font-semibold text-slate-300">Precipitation &amp; Humidity</h3>
+              <div class="flex gap-3 text-xs text-slate-500">
+                <span class="flex items-center gap-1.5"><span class="inline-block h-3 w-4 rounded bg-sky-500/50"></span>Precip %</span>
+                <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-4 rounded bg-teal-400"></span>Humidity %</span>
+              </div>
+            </div>
+            <div class="h-52"><canvas id="chart-precip-rh"></canvas></div>
+          </div>
+
+          <!-- Chart 4: Snowfall Amount + Snow Level -->
+          <div class="rounded-xl border border-slate-800 bg-slate-900 p-5">
+            <div class="mb-3 flex items-center justify-between">
+              <h3 class="text-sm font-semibold text-slate-300">Snow Amount &amp; Snow Level</h3>
+              <div class="flex gap-3 text-xs text-slate-500">
+                <span class="flex items-center gap-1.5"><span class="inline-block h-3 w-4 rounded bg-slate-300/50"></span>Snowfall in/hr</span>
+                <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-4 rounded bg-violet-400"></span>Level ft</span>
+              </div>
+            </div>
+            <div class="h-52"><canvas id="chart-snow"></canvas></div>
+          </div>
+
+        </div>
+      </section>
+    )}
+
+    <!-- ── Raw Forecast Table ─────────────────────────────────────────── -->
+    {samplePoint && samplePoint.forecast.length > 0 && (
+      <section class="mb-10">
+        <h2 class="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-400">Raw Forecast Values — first 24 hours</h2>
+        <div class="overflow-x-auto rounded-xl border border-slate-800">
+          <table class="w-full text-xs">
+            <thead>
+              <tr class="border-b border-slate-800 text-slate-500">
+                {['Time (UTC)', 'Temp °F', 'Wind mph', 'Gust mph', 'Dir °', 'Precip %', 'RH %', 'Snow in/hr', 'Snow Lvl ft', 'Sky %'].map(h => (
+                  <th class="whitespace-nowrap px-4 py-2.5 text-right first:text-left font-semibold tracking-wide uppercase">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {samplePoint.forecast.slice(0, 24).map((r: ForecastRow, i: number) => (
+                <tr class={`border-b border-slate-800/40 ${i % 2 !== 0 ? 'bg-slate-800/20' : ''}`}>
+                  <td class="px-4 py-2 font-mono text-slate-400 whitespace-nowrap">
+                    {new Date(r.valid_time).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', hour12: false, timeZone: 'UTC' })}
+                  </td>
+                  <td class={`px-4 py-2 text-right tabular-nums ${tempColor(r.air_temp)}`}>{fmt(r.air_temp, 1)}</td>
+                  <td class="px-4 py-2 text-right tabular-nums text-sky-300">{fmt(r.wind_speed, 1)}</td>
+                  <td class="px-4 py-2 text-right tabular-nums text-sky-200">{fmt(r.wind_gust, 1)}</td>
+                  <td class="px-4 py-2 text-right tabular-nums text-slate-400">{r.wind_direction !== null ? `${Math.round(r.wind_direction)}° ${windDir8(r.wind_direction)}` : '—'}</td>
+                  <td class="px-4 py-2 text-right tabular-nums text-slate-300">{fmt(r.precip_prob, 0, '%')}</td>
+                  <td class="px-4 py-2 text-right tabular-nums text-teal-300">{fmt(r.relative_humidity, 0, '%')}</td>
+                  <td class="px-4 py-2 text-right tabular-nums text-slate-200">{r.snowfall_amount !== null && r.snowfall_amount > 0 ? fmt(r.snowfall_amount, 3) : '—'}</td>
+                  <td class="px-4 py-2 text-right tabular-nums text-violet-300">{r.snow_level !== null ? Math.round(r.snow_level).toLocaleString() : '—'}</td>
+                  <td class="px-4 py-2 text-right tabular-nums text-slate-400">{fmt(r.sky_cover, 0, '%')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    )}
+
+    <!-- ── Point Coverage Grid ────────────────────────────────────────── -->
+    <section class="mb-10">
+      <h2 class="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-400">Point Coverage — all {coverage.length} configured locations</h2>
+      <div class="space-y-6">
+        {Object.entries(byArea).map(([areaName, points]) => (
+          <div>
+            <h3 class="mb-2 text-sm font-semibold text-amber-500">{areaName}</h3>
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {points.map(p => (
+                <a href={`/${p.slug}`} class="group flex items-start justify-between rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 transition-colors hover:border-slate-700 hover:bg-slate-800/60">
+                  <div class="min-w-0">
+                    <div class="truncate text-sm font-medium text-slate-200 group-hover:text-slate-100">{p.name}</div>
+                    {p.station_id && (
+                      <div class="mt-0.5 font-mono text-xs text-slate-600">{p.station_id}</div>
+                    )}
+                    {p.latest_obs_at && (
+                      <div class="mt-0.5 text-xs text-slate-500">obs {relAge(p.latest_obs_at)}</div>
+                    )}
+                  </div>
+                  <div class="ml-3 flex shrink-0 flex-col items-end gap-1 pt-0.5 text-xs">
+                    <span class={`font-medium ${p.has_forecast ? 'text-emerald-400' : 'text-slate-700'}`}>
+                      {p.has_forecast ? '✓ fcst' : '✗ fcst'}
+                    </span>
+                    <span class={`font-medium ${p.latest_obs_at ? (p.obs_source === 'synoptic' ? 'text-violet-400' : 'text-sky-400') : 'text-slate-700'}`}>
+                      {p.latest_obs_at ? `✓ ${p.obs_source ?? 'nws'}` : '✗ obs'}
+                    </span>
+                  </div>
+                </a>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <!-- ── Observation History ────────────────────────────────────────── -->
+    {samplePoint && samplePoint.obsHistory.length > 0 && (
+      <section class="mb-10">
+        <h2 class="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-400">Observation History</h2>
+        <p class="mb-4 text-sm text-slate-500">
+          Last {samplePoint.obsHistory.length} observations for <span class="font-medium text-slate-300">{samplePoint.name}</span>
+          — station <span class="font-mono text-slate-400">{samplePoint.obsHistory[0]?.station_id}</span>
+        </p>
+        <div class="overflow-x-auto rounded-xl border border-slate-800">
+          <table class="w-full text-xs">
+            <thead>
+              <tr class="border-b border-slate-800 text-slate-500">
+                {['Observed (UTC)', 'Temp °F', 'Wind mph', 'Gust mph', 'Dir', 'RH %', 'Precip "', 'Snow Depth "', 'Source'].map(h => (
+                  <th class="whitespace-nowrap px-4 py-2.5 text-right first:text-left font-semibold tracking-wide uppercase">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {samplePoint.obsHistory.map((r: ObsHistoryRow, i: number) => (
+                <tr class={`border-b border-slate-800/40 ${i % 2 !== 0 ? 'bg-slate-800/20' : ''}`}>
+                  <td class="px-4 py-2 font-mono text-slate-400 whitespace-nowrap">
+                    {new Date(r.observed_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: false, timeZone: 'UTC' })}
+                  </td>
+                  <td class={`px-4 py-2 text-right tabular-nums ${tempColor(r.air_temp)}`}>{fmt(r.air_temp, 1)}</td>
+                  <td class="px-4 py-2 text-right tabular-nums text-sky-300">{fmt(r.wind_speed, 1)}</td>
+                  <td class="px-4 py-2 text-right tabular-nums text-sky-200">{fmt(r.wind_gust, 1)}</td>
+                  <td class="px-4 py-2 text-right tabular-nums text-slate-400">{windDir8(r.wind_direction)}</td>
+                  <td class="px-4 py-2 text-right tabular-nums text-teal-300">{fmt(r.relative_humidity, 0, '%')}</td>
+                  <td class="px-4 py-2 text-right tabular-nums text-slate-300">{r.precip_last_hour !== null && r.precip_last_hour > 0 ? fmt(r.precip_last_hour, 3) : '—'}</td>
+                  <td class="px-4 py-2 text-right tabular-nums text-slate-200">{r.snow_depth !== null && r.snow_depth > 0 ? fmt(r.snow_depth, 1) : '—'}</td>
+                  <td class="px-4 py-2 text-right">
+                    <span class={`rounded px-1.5 py-0.5 text-xs font-medium ${r.source === 'synoptic' ? 'bg-violet-900/60 text-violet-300' : 'bg-sky-900/60 text-sky-300'}`}>
+                      {r.source}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    )}
+
+    {samplePoint && samplePoint.obsHistory.length === 0 && (
+      <section class="mb-10">
+        <h2 class="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-400">Observation History</h2>
+        <div class="rounded-xl border border-slate-800 bg-slate-900 px-6 py-8 text-sm text-slate-500">
+          No observation history yet for {samplePoint.name}. Station resolution runs on the first Synoptic/NWS poll cycle.
+        </div>
+      </section>
+    )}
+
+  </div>
+</Layout>
+
+<!-- Data bridge: server-rendered JSON read by the client chart script -->
+<div id="chart-data" data-payload={chartPayload} class="hidden"></div>
+
+<!-- Chart initialisation ─────────────────────────────────────────────────── -->
+<script>
+  import {
+    Chart,
+    LineController, BarController,
+    LineElement, BarElement, PointElement,
+    LinearScale, CategoryScale,
+    Tooltip, Filler,
+  } from 'chart.js';
+
+  Chart.register(
+    LineController, BarController,
+    LineElement, BarElement, PointElement,
+    LinearScale, CategoryScale,
+    Tooltip, Filler,
+  );
+
+  const payload = (document.getElementById('chart-data') as HTMLElement | null)?.dataset.payload ?? '[]';
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows: any[] = JSON.parse(payload);
+  if (!rows.length) throw new Error('No chart data');
+
+  const labels: string[] = rows.map((r: any) =>
+    new Date(r.t as string).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', hour12: true })
+  );
+
+  const GRID = 'rgba(148,163,184,0.07)';
+  const TICK = '#64748b';
+
+  const sharedOpts = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index' as const, intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#1e293b',
+        borderColor: '#334155',
+        borderWidth: 1,
+        titleColor: '#f1f5f9',
+        bodyColor: '#cbd5e1',
+        padding: 8,
+      },
+    },
+  };
+
+  // ── Chart 1: Temperature + Sky Cover ──────────────────────────────────
+  new Chart(document.getElementById('chart-temp-sky') as HTMLCanvasElement, {
+    data: {
+      labels,
+      datasets: [
+        {
+          type: 'line',
+          label: 'Temp (°F)',
+          data: rows.map(r => r.temp),
+          yAxisID: 'yTemp',
+          borderColor: '#fbbf24',
+          backgroundColor: 'rgba(251,191,36,0.10)',
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.3,
+          fill: true,
+          spanGaps: true,
+        },
+        {
+          type: 'bar',
+          label: 'Sky Cover (%)',
+          data: rows.map(r => r.sky),
+          yAxisID: 'ySky',
+          backgroundColor: 'rgba(100,116,139,0.35)',
+          borderColor: 'rgba(100,116,139,0.5)',
+          borderWidth: 1,
+        },
+      ],
+    },
+    options: {
+      ...sharedOpts,
+      scales: {
+        x: { grid: { color: GRID }, ticks: { color: TICK, maxTicksLimit: 8, maxRotation: 0, autoSkip: true } },
+        yTemp: { position: 'left',  grid: { color: GRID }, ticks: { color: '#fbbf24', callback: v => `${v}°` } },
+        ySky:  { position: 'right', min: 0, max: 100, grid: { drawOnChartArea: false }, ticks: { color: TICK, callback: v => `${v}%` } },
+      },
+    },
+  });
+
+  // ── Chart 2: Wind Speed + Gust ────────────────────────────────────────
+  new Chart(document.getElementById('chart-wind') as HTMLCanvasElement, {
+    data: {
+      labels,
+      datasets: [
+        {
+          type: 'line',
+          label: 'Wind Speed (mph)',
+          data: rows.map(r => r.wind),
+          borderColor: '#38bdf8',
+          backgroundColor: 'rgba(56,189,248,0.10)',
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.3,
+          fill: true,
+          spanGaps: true,
+        },
+        {
+          type: 'line',
+          label: 'Gust (mph)',
+          data: rows.map(r => r.gust),
+          borderColor: '#7dd3fc',
+          borderWidth: 1.5,
+          borderDash: [4, 3],
+          pointRadius: 0,
+          tension: 0.3,
+          fill: false,
+          spanGaps: true,
+        },
+      ],
+    },
+    options: {
+      ...sharedOpts,
+      scales: {
+        x: { grid: { color: GRID }, ticks: { color: TICK, maxTicksLimit: 8, maxRotation: 0, autoSkip: true } },
+        y: { grid: { color: GRID }, ticks: { color: '#38bdf8', callback: v => `${v} mph` }, beginAtZero: true },
+      },
+    },
+  });
+
+  // ── Chart 3: Precip Probability + Relative Humidity ───────────────────
+  new Chart(document.getElementById('chart-precip-rh') as HTMLCanvasElement, {
+    data: {
+      labels,
+      datasets: [
+        {
+          type: 'bar',
+          label: 'Precip Prob (%)',
+          data: rows.map(r => r.precip),
+          yAxisID: 'yPrecip',
+          backgroundColor: 'rgba(56,189,248,0.40)',
+          borderColor: 'rgba(56,189,248,0.60)',
+          borderWidth: 1,
+        },
+        {
+          type: 'line',
+          label: 'Humidity (%)',
+          data: rows.map(r => r.rh),
+          yAxisID: 'yRH',
+          borderColor: '#2dd4bf',
+          backgroundColor: 'rgba(45,212,191,0.08)',
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.3,
+          fill: true,
+          spanGaps: true,
+        },
+      ],
+    },
+    options: {
+      ...sharedOpts,
+      scales: {
+        x: { grid: { color: GRID }, ticks: { color: TICK, maxTicksLimit: 8, maxRotation: 0, autoSkip: true } },
+        yPrecip: { position: 'left',  min: 0, max: 100, grid: { color: GRID }, ticks: { color: '#38bdf8', callback: v => `${v}%` } },
+        yRH:     { position: 'right', min: 0, max: 100, grid: { drawOnChartArea: false }, ticks: { color: '#2dd4bf', callback: v => `${v}%` } },
+      },
+    },
+  });
+
+  // ── Chart 4: Snowfall Amount + Snow Level ─────────────────────────────
+  new Chart(document.getElementById('chart-snow') as HTMLCanvasElement, {
+    data: {
+      labels,
+      datasets: [
+        {
+          type: 'bar',
+          label: 'Snowfall (in/hr)',
+          data: rows.map(r => r.snow),
+          yAxisID: 'ySnow',
+          backgroundColor: 'rgba(203,213,225,0.45)',
+          borderColor: 'rgba(203,213,225,0.65)',
+          borderWidth: 1,
+        },
+        {
+          type: 'line',
+          label: 'Snow Level (ft)',
+          data: rows.map(r => r.snowLvl),
+          yAxisID: 'yLvl',
+          borderColor: '#a78bfa',
+          backgroundColor: 'rgba(167,139,250,0.08)',
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.3,
+          fill: true,
+          spanGaps: true,
+        },
+      ],
+    },
+    options: {
+      ...sharedOpts,
+      scales: {
+        x: { grid: { color: GRID }, ticks: { color: TICK, maxTicksLimit: 8, maxRotation: 0, autoSkip: true } },
+        ySnow: { position: 'left',  min: 0, grid: { color: GRID }, ticks: { color: '#cbd5e1', callback: v => `${v}"` } },
+        yLvl:  { position: 'right', min: 0, grid: { drawOnChartArea: false }, ticks: { color: '#a78bfa', callback: v => `${Number(v).toLocaleString()}ft` } },
+      },
+    },
+  });
+</script>

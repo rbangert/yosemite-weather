@@ -18,6 +18,8 @@ export function handleRequest(req: Request): Response {
   const latest = pathname.match(/^\/api\/points\/([^/]+)\/observations\/latest$/);
   if (latest) return handleLatestObservation(latest[1]);
 
+  if (pathname === "/api/data-explorer") return handleDataExplorer();
+
   return json({ error: "Not found" }, 404);
 }
 
@@ -129,6 +131,66 @@ function handleLatestObservation(slug: string): Response {
 
   if (!row) return json({ error: "No observations available for this point" }, 404);
   return json(row);
+}
+
+// Aggregated payload for the data-explorer visualisation page.
+function handleDataExplorer(): Response {
+  const db = getDb();
+  const now = new Date().toISOString().slice(0, 13) + ":00:00Z";
+
+  const summary = {
+    totalPoints:            (db.prepare(`SELECT COUNT(*) c FROM points`).get() as any).c,
+    pointsWithForecasts:    (db.prepare(`SELECT COUNT(DISTINCT point_slug) c FROM forecasts WHERE valid_time >= ?`).get(now) as any).c,
+    pointsWithObservations: (db.prepare(`SELECT COUNT(DISTINCT point_slug) c FROM observations`).get() as any).c,
+    activeForecastRows:     (db.prepare(`SELECT COUNT(*) c FROM forecasts WHERE valid_time >= ?`).get(now) as any).c,
+    totalObservationRows:   (db.prepare(`SELECT COUNT(*) c FROM observations`).get() as any).c,
+    nwsObsRows:             (db.prepare(`SELECT COUNT(*) c FROM observations WHERE COALESCE(source,'nws') != 'synoptic'`).get() as any).c,
+    synopticObsRows:        (db.prepare(`SELECT COUNT(*) c FROM observations WHERE source = 'synoptic'`).get() as any).c,
+    lastFetchedAt:          (db.prepare(`SELECT MAX(fetched_at) m FROM forecasts`).get() as any).m as string | null,
+  };
+
+  // Sample point: pick whichever has the most active forecast rows (best coverage).
+  const sampleMeta = db.prepare(`
+    SELECT p.slug, p.name
+    FROM points p
+    JOIN forecasts f ON f.point_slug = p.slug AND f.valid_time >= ?
+    GROUP BY p.slug ORDER BY COUNT(*) DESC LIMIT 1
+  `).get(now) as { slug: string; name: string } | undefined;
+
+  let samplePoint: any = null;
+  if (sampleMeta) {
+    const forecast = db.prepare(`
+      SELECT valid_time, air_temp, wind_speed, wind_gust, wind_direction,
+             precip_prob, relative_humidity, snowfall_amount, snow_level, sky_cover
+      FROM forecasts WHERE point_slug = ? AND valid_time >= ?
+      ORDER BY valid_time ASC LIMIT 72
+    `).all(sampleMeta.slug, now);
+
+    const obsHistory = db.prepare(`
+      SELECT station_id, observed_at, air_temp, wind_speed, wind_gust,
+             wind_direction, relative_humidity, precip_last_hour, snow_depth,
+             COALESCE(source, 'nws') AS source
+      FROM observations WHERE point_slug = ?
+      ORDER BY observed_at DESC LIMIT 48
+    `).all(sampleMeta.slug);
+
+    samplePoint = { slug: sampleMeta.slug, name: sampleMeta.name, forecast, obsHistory };
+  }
+
+  // Per-point coverage for the grid.
+  const coverage = db.prepare(`
+    SELECT
+      p.slug, p.name, p.area_slug, p.area_name,
+      CASE WHEN (SELECT COUNT(*) FROM forecasts f WHERE f.point_slug = p.slug AND f.valid_time >= ?) > 0
+           THEN 1 ELSE 0 END AS has_forecast,
+      (SELECT MAX(observed_at) FROM observations WHERE point_slug = p.slug) AS latest_obs_at,
+      (SELECT COALESCE(source,'nws') FROM observations WHERE point_slug = p.slug ORDER BY observed_at DESC LIMIT 1) AS obs_source,
+      (SELECT station_id FROM observations WHERE point_slug = p.slug ORDER BY observed_at DESC LIMIT 1) AS station_id
+    FROM points p
+    ORDER BY p.area_slug, p.name
+  `).all(now);
+
+  return json({ summary, samplePoint, coverage });
 }
 
 function pointExists(slug: string): boolean {

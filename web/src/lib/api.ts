@@ -71,3 +71,55 @@ export async function fetchLatestObservation(slug: string): Promise<ObservationR
   if (!res.ok) throw new Error(`Observation fetch failed: ${res.status}`);
   return res.json() as Promise<ObservationRow>;
 }
+
+// --- Data Explorer ----------------------------------------------------------
+
+export interface ObsHistoryRow {
+  station_id: string;
+  observed_at: string;
+  air_temp: number | null;
+  wind_speed: number | null;
+  wind_gust: number | null;
+  wind_direction: number | null;
+  relative_humidity: number | null;
+  precip_last_hour: number | null;
+  snow_depth: number | null;
+  source: string;
+}
+
+export interface CoverageRow {
+  slug: string;
+  name: string;
+  area_slug: string;
+  area_name: string;
+  has_forecast: 0 | 1;
+  latest_obs_at: string | null;
+  obs_source: string | null;
+  station_id: string | null;
+}
+
+export interface DataExplorerPayload {
+  summary: {
+    totalPoints: number;
+    pointsWithForecasts: number;
+    pointsWithObservations: number;
+    activeForecastRows: number;
+    totalObservationRows: number;
+    nwsObsRows: number;
+    synopticObsRows: number;
+    lastFetchedAt: string | null;
+  };
+  samplePoint: {
+    slug: string;
+    name: string;
+    forecast: ForecastRow[];
+    obsHistory: ObsHistoryRow[];
+  } | null;
+  coverage: CoverageRow[];
+}
+
+export async function fetchDataExplorer(): Promise<DataExplorerPayload> {
+  const res = await fetch(`${API_BASE}/api/data-explorer`);
+  if (!res.ok) throw new Error(`Data explorer fetch failed: ${res.status}`);
+  return res.json() as Promise<DataExplorerPayload>;
+}
