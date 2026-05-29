@@ -378,18 +378,79 @@ to load data. Other scripts: `bun run build` (production build), `bun run check`
 └── web/                    # Frontend (Astro + Tailwind)
     ├── astro.config.mjs    # SSR output + Tailwind Vite plugin
     └── src/
+        ├── components/     # ForecastChart.astro — Chart.js island
         ├── layouts/        # Layout.astro — page shell + nav
         ├── lib/api.ts      # Typed backend API client
         ├── pages/          # index.astro (overview), [slug].astro (detail)
         └── styles/         # global.css (@import "tailwindcss")
 ```
 
-## Roadmap
+## Frontend Roadmap
 
-- **Forecast charts on the detail page** — visualize the 72-hour series (temperature,
-  precip probability, wind) instead of only the table. Planned library: **Chart.js**,
-  mounted in an Astro island. It is framework-agnostic (no React/Vue needed), has
-  first-class time-series support, and its ergonomics suit our small per-point datasets.
-  [uPlot](https://github.com/leeoniya/uPlot) is the fallback if we ever need many charts
-  or live streaming — far smaller and faster, but a lower-level API.
-- Synoptic Data API integration for wind data not available through NWS.
+Target: feature parity with backcountry weather dashboards like
+[ccweather.com](https://www.ccweather.com) (Steve's Cottonwood Canyon dashboard),
+adapted for Yosemite. Milestones are ordered roughly by priority; checked items ship.
+
+### ✅ Completed
+
+#### Milestone 1 — Dashboard foundation
+
+- [x] Astro SSR app with Tailwind v4, dark theme, responsive layout, sticky nav
+- [x] Area-grouped overview grid (Valley & West, South, High Country)
+- [x] Per-point summary: color-coded temperature, wind speed + direction, precip %
+- [x] Snowfall indicator on points expecting snow
+- [x] Typed API client against the backend
+
+#### Milestone 2 — Location detail & forecast chart
+
+- [x] Current-conditions panel — station observation with forecast fallback
+      (temp, wind + gust + direction, humidity, precip, source station)
+- [x] 72-hour hourly forecast table (temp, wind, precip %, sky %, RH %, snow)
+- [x] Temperature + precipitation chart (Chart.js, dual-axis, hover tooltip)
+
+### 🔜 Planned
+
+#### Milestone 3 — Richer forecast UI
+
+- [ ] Weather condition icons derived from sky cover / precip type _(ccweather: weather icons)_
+- [ ] 7-day extended forecast cards: daily high/low, icon, precip _(ccweather: 7-day forecast)_
+- [ ] Timeframe tabs on the detail page (24h / 48h / 72h) _(ccweather: tabbed forecast nav)_
+- [ ] Additional chart series — wind & gusts, humidity, sky cover, snow level (toggleable)
+- [ ] Wind direction compass / barbs
+- [ ] Unit toggle (°F/°C, mph/kph, in/cm)
+
+#### Milestone 4 — Snow & avalanche
+
+- [ ] Snowfall accumulation display + snow-level line on the chart _(ccweather: new-snow estimates)_
+- [ ] Snow depth with 12 / 24 / 48-hour change _(ccweather: snow depth + deltas)_ — needs SNOTEL data
+- [ ] 30-day snow-depth trend chart _(ccweather: 30-day trends)_
+- [ ] Snow Water Equivalent multi-season comparison _(ccweather: SWE graphs)_ — needs SNOTEL data
+- [ ] Avalanche forecast links (e.g. Eastern Sierra Avalanche Center) _(ccweather: avalanche section)_
+
+#### Milestone 5 — Maps & imagery
+
+- [ ] Interactive map of monitored points (Leaflet/MapLibre) with click-through to detail
+- [ ] NOAA radar layer / embed _(ccweather: interactive radar)_
+- [ ] NPS Yosemite webcams _(ccweather: webcam feeds)_
+
+#### Milestone 6 — Alerts & conditions
+
+- [ ] NWS active alerts (watches / warnings) banner _(ccweather: alerts)_
+- [ ] Road status & closures (Tioga / Glacier Point roads via NPS) _(ccweather: road alerts)_
+- [ ] Sunrise / sunset & moon phase per location
+
+#### Milestone 7 — Polish & platform
+
+- [ ] Location search / filter
+- [ ] Favorites / saved locations (localStorage)
+- [ ] Auto-refresh / live updates without full reload
+- [ ] Historical observation trends (the backend already retains 30 days)
+- [ ] PWA — installable, offline app shell
+- [ ] Accessibility pass (keyboard nav, contrast, ARIA)
+
+## Backend Roadmap
+
+- [ ] Synoptic Data API integration for wind data not available through NWS.
+- [ ] SNOTEL ingestion — snow depth & snow water equivalent (feeds Milestone 4).
+- [ ] NWS active-alerts passthrough endpoint (feeds Milestone 6).
+- [ ] Daily forecast aggregation endpoint for the 7-day cards (feeds Milestone 3).
