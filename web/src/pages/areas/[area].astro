@@ -1,0 +1,42 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import ObsTable from '../../components/ObsTable.astro';
+import { fetchOverview } from '../../lib/api';
+import type { AreaOverview } from '../../lib/api';
+
+const { area } = Astro.params;
+if (!area) return Astro.redirect('/');
+
+let areaData: AreaOverview | undefined;
+let error: string | null = null;
+
+try {
+  const allAreas = await fetchOverview();
+  areaData = allAreas.find(a => a.slug === area);
+} catch (e) {
+  error = e instanceof Error ? e.message : 'Failed to load weather data';
+}
+
+if (!areaData && !error) {
+  return new Response(null, { status: 404 });
+}
+---
+
+<Layout title={areaData?.name ?? 'Area'}>
+  <div class="mx-auto max-w-7xl px-4 py-8">
+    <div class="mb-8">
+      <h1 class="text-2xl font-bold text-slate-100">{areaData?.name}</h1>
+      <p class="mt-1 text-sm text-slate-400">Current conditions · NOAA/NWS</p>
+    </div>
+
+    {error && (
+      <div class="mb-6 rounded-lg border border-red-800 bg-red-950 p-4 text-sm text-red-300">
+        Could not load weather data: {error}
+      </div>
+    )}
+
+    {areaData && (
+      <ObsTable points={areaData.points} areaSlug={area} />
+    )}
+  </div>
+</Layout>

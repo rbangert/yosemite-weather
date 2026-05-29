@@ -1,43 +1,24 @@
 ---
 import Layout from '../layouts/Layout.astro';
+import ObsTable from '../components/ObsTable.astro';
 import { fetchOverview } from '../lib/api';
 import type { AreaOverview } from '../lib/api';
 
-let areas: AreaOverview[] = [];
+let areaData: AreaOverview | undefined;
 let error: string | null = null;
 
 try {
-  areas = await fetchOverview();
+  const allAreas = await fetchOverview();
+  areaData = allAreas.find(a => a.slug === 'valley-west');
 } catch (e) {
   error = e instanceof Error ? e.message : 'Failed to load weather data';
 }
-
-function tempColor(t: number | null): string {
-  if (t === null) return 'text-slate-500';
-  if (t < 32) return 'text-blue-300';
-  if (t < 45) return 'text-sky-300';
-  if (t < 60) return 'text-emerald-300';
-  if (t < 72) return 'text-amber-200';
-  if (t < 85) return 'text-orange-300';
-  return 'text-red-400';
-}
-
-function windDir(deg: number | null): string {
-  if (deg === null) return '';
-  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-  return dirs[Math.round(deg / 45) % 8];
-}
-
-function fmt(v: number | null, digits = 0): string {
-  if (v === null) return '—';
-  return v.toFixed(digits);
-}
 ---
 
-<Layout title="Overview">
+<Layout title="Valley & West">
   <div class="mx-auto max-w-7xl px-4 py-8">
     <div class="mb-8">
-      <h1 class="text-2xl font-bold text-slate-100">Yosemite National Park</h1>
+      <h1 class="text-2xl font-bold text-slate-100">Valley &amp; West</h1>
       <p class="mt-1 text-sm text-slate-400">Current conditions · NOAA/NWS</p>
     </div>
 
@@ -47,53 +28,14 @@ function fmt(v: number | null, digits = 0): string {
       </div>
     )}
 
-    {areas.length === 0 && !error && (
+    {areaData && (
+      <ObsTable points={areaData.points} areaSlug="valley-west" />
+    )}
+
+    {!areaData && !error && (
       <p class="py-12 text-center text-sm text-slate-500">
         No data yet — the poller may still be resolving NWS gridpoints.
       </p>
     )}
-
-    {areas.map(area => (
-      <section class="mb-10">
-        <h2 class="mb-3 text-xs font-semibold uppercase tracking-widest text-amber-500">
-          {area.name}
-        </h2>
-        <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {area.points.map(point => {
-            const f = point.forecast;
-            const o = point.observation;
-            const displayTemp = o?.air_temp ?? f?.air_temp ?? null;
-            const displayWind = o?.wind_speed ?? f?.wind_speed ?? null;
-            const displayDir = o?.wind_direction ?? f?.wind_direction ?? null;
-            return (
-              <a
-                href={`/${point.slug}`}
-                class="group block rounded-xl border border-slate-800 bg-slate-900 p-4 transition-all duration-150 hover:border-slate-600 hover:bg-slate-800"
-              >
-                <div class="mb-2 text-sm leading-tight text-slate-300 transition-colors group-hover:text-white">
-                  {point.name}
-                </div>
-                <div class={`mb-3 text-3xl font-light tabular-nums ${tempColor(displayTemp)}`}>
-                  {displayTemp !== null ? `${Math.round(displayTemp)}°` : '—°'}
-                </div>
-                <div class="flex gap-4 text-xs text-slate-500">
-                  <span>
-                    {fmt(displayWind)}&thinsp;mph {windDir(displayDir)}
-                  </span>
-                  {f && (
-                    <span>{fmt(f.precip_prob)}% precip</span>
-                  )}
-                </div>
-                {f?.snowfall_amount !== null && f?.snowfall_amount !== undefined && f.snowfall_amount > 0 && (
-                  <div class="mt-1.5 text-xs text-indigo-400">
-                    ❄ {f.snowfall_amount.toFixed(1)}"
-                  </div>
-                )}
-              </a>
-            );
-          })}
-        </div>
-      </section>
-    ))}
   </div>
 </Layout>

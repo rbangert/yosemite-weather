@@ -1,0 +1,199 @@
+---
+import type { PointOverview, ObservationRow } from '../lib/api';
+
+interface Props {
+  points: PointOverview[];
+  areaSlug: string;
+}
+
+const { points, areaSlug } = Astro.props;
+
+interface StationGroup {
+  stationId: string;
+  obs: ObservationRow;
+  pointNames: string[];
+}
+
+const stationLabels: Record<string, string> = {
+  YYVC1: 'Yosemite Valley',
+  TUMC1: 'Tuolumne Meadows',
+  WWNC1: 'Wawona',
+  MOUC1: 'Mather',
+  E7845: 'Fish Camp',
+  '615SE': 'Tioga Pass',
+};
+
+// Group area points by observation station, keeping the freshest obs per station
+const stationMap = new Map<string, StationGroup>();
+const noStationPoints: string[] = [];
+
+for (const point of points) {
+  if (!point.observation) {
+    noStationPoints.push(point.name);
+    continue;
+  }
+  const sid = point.observation.station_id;
+  const existing = stationMap.get(sid);
+  if (!existing) {
+    stationMap.set(sid, { stationId: sid, obs: point.observation, pointNames: [point.name] });
+  } else {
+    if (point.observation.observed_at > existing.obs.observed_at) {
+      existing.obs = point.observation;
+    }
+    existing.pointNames.push(point.name);
+  }
+}
+
+// Sort: most points served first, then alphabetically by station label
+const stations = [...stationMap.values()].sort((a, b) => {
+  if (b.pointNames.length !== a.pointNames.length) return b.pointNames.length - a.pointNames.length;
+  return (stationLabels[a.stationId] ?? a.stationId).localeCompare(stationLabels[b.stationId] ?? b.stationId);
+});
+
+function tempColor(t: number | null): string {
+  if (t === null) return 'text-slate-500';
+  if (t < 32) return 'text-blue-300';
+  if (t < 45) return 'text-sky-300';
+  if (t < 60) return 'text-emerald-300';
+  if (t < 72) return 'text-amber-200';
+  if (t < 85) return 'text-orange-300';
+  return 'text-red-400';
+}
+
+function windDir(deg: number | null): string {
+  if (deg === null) return '';
+  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  return dirs[Math.round(deg / 45) % 8];
+}
+
+function relAge(iso: string): string {
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m > 0 ? `${h}h ${m}m ago` : `${h}h ago`;
+}
+
+function fmtTime(iso: string): string {
+  return new Date(iso).toLocaleString('en-US', {
+    month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+    timeZoneName: 'short',
+  });
+}
+
+// Column definitions
+interface Column {
+  key: string;
+  header: string;
+  cellValue: (obs: ObservationRow) => string;
+  cellClass: (obs: ObservationRow) => string;
+  hideMobile?: boolean;
+}
+
+const allCols: Record<string, Column> = {
+  temp: {
+    key: 'temp',
+    header: 'Temp',
+    cellValue: (obs) => obs.air_temp !== null ? `${Math.round(obs.air_temp)}°F` : '—',
+    cellClass: (obs) => `font-medium tabular-nums ${tempColor(obs.air_temp)}`,
+  },
+  humidity: {
+    key: 'humidity',
+    header: 'Humidity',
+    cellValue: (obs) => obs.relative_humidity !== null ? `${Math.round(obs.relative_humidity)}%` : '—',
+    cellClass: () => 'tabular-nums text-slate-300',
+    hideMobile: true,
+  },
+  wind: {
+    key: 'wind',
+    header: 'Wind',
+    cellValue: (obs) => obs.wind_speed !== null
+      ? `${Math.round(obs.wind_speed)} mph ${windDir(obs.wind_direction)}`
+      : '—',
+    cellClass: () => 'tabular-nums text-slate-300',
+  },
+  gust: {
+    key: 'gust',
+    header: 'Gust',
+    cellValue: (obs) => obs.wind_gust !== null ? `${Math.round(obs.wind_gust)} mph` : '—',
+    cellClass: (obs) => `tabular-nums ${obs.wind_gust !== null && obs.wind_gust >= 35 ? 'text-orange-300' : 'text-slate-300'}`,
+    hideMobile: true,
+  },
+  precip: {
+    key: 'precip',
+    header: 'Precip / 1h',
+    cellValue: (obs) => obs.precip_last_hour !== null && obs.precip_last_hour > 0
+      ? `${obs.precip_last_hour.toFixed(2)}"`
+      : '—',
+    cellClass: (obs) => `tabular-nums ${obs.precip_last_hour !== null && obs.precip_last_hour > 0 ? 'text-sky-300' : 'text-slate-500'}`,
+    hideMobile: true,
+  },
+};
+
+// Column order per area — most safety/comfort-relevant fields come first
+const colOrders: Record<string, string[]> = {
+  'valley-west':  ['temp', 'humidity', 'wind', 'gust', 'precip'],
+  'south':        ['temp', 'wind', 'precip', 'humidity', 'gust'],
+  'high-country': ['temp', 'wind', 'gust', 'precip', 'humidity'],
+};
+
+const columns = (colOrders[areaSlug] ?? colOrders['valley-west']).map(k => allCols[k] as Column);
+---
+
+<div class="overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
+  <div class="border-b border-slate-800 px-6 py-4">
+    <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">Current Conditions</h2>
+  </div>
+
+  {stations.length === 0 ? (
+    <p class="px-6 py-8 text-sm text-slate-500">No observation data available yet.</p>
+  ) : (
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-500">
+            <th class="px-6 py-3 text-left font-semibold">Station</th>
+            {columns.map(col => (
+              <th class={`px-4 py-3 text-right font-semibold${col.hideMobile ? ' hidden sm:table-cell' : ''}`}>
+                {col.header}
+              </th>
+            ))}
+            <th class="hidden px-6 py-3 text-right font-semibold sm:table-cell">Updated</th>
+          </tr>
+        </thead>
+        <tbody>
+          {stations.map((station, i) => (
+            <tr class={`border-b border-slate-800/50${i % 2 !== 0 ? ' bg-slate-800/20' : ''}`}>
+              <td class="px-6 py-4 align-top">
+                <div class="text-sm font-medium text-slate-200">
+                  {stationLabels[station.stationId] ?? station.stationId}
+                </div>
+                <div class="mt-0.5 font-mono text-xs text-slate-600">{station.stationId}</div>
+                <div class="mt-1.5 text-xs leading-relaxed text-slate-500">
+                  {station.pointNames.join(' · ')}
+                </div>
+              </td>
+              {columns.map(col => (
+                <td class={`px-4 py-4 text-right align-top${col.hideMobile ? ' hidden sm:table-cell' : ''} ${col.cellClass(station.obs)}`}>
+                  {col.cellValue(station.obs)}
+                </td>
+              ))}
+              <td class="hidden px-6 py-4 text-right align-top sm:table-cell">
+                <div class="text-xs text-slate-400">{relAge(station.obs.observed_at)}</div>
+                <div class="mt-0.5 text-xs text-slate-600">{fmtTime(station.obs.observed_at)}</div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+
+  {noStationPoints.length > 0 && (
+    <div class="border-t border-slate-800 px-6 py-3 text-xs text-slate-600">
+      No active observation station for: {noStationPoints.join(', ')}
+    </div>
+  )}
+</div>

@@ -3,9 +3,10 @@
   "configurations": [
     {
       "name": "web",
+      "cwd": "web",
       "runtimeExecutable": "bun",
       "runtimeArgs": ["run", "dev"],
-      "port": 4322
+      "port": 4321
     }
   ]
 }
