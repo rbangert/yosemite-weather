@@ -87,6 +87,27 @@ export function setupSchema(): void {
     ON observations(point_slug, observed_at DESC)
   `);
 
+  // Migrations for columns added after initial schema.
+  try { db.run(`ALTER TABLE observations ADD COLUMN snow_depth REAL`); } catch {}
+  try { db.run(`ALTER TABLE observations ADD COLUMN source TEXT NOT NULL DEFAULT 'nws'`); } catch {}
+  try { db.run(`ALTER TABLE points ADD COLUMN synoptic_station_id TEXT`); } catch {}
+  try { db.run(`ALTER TABLE points ADD COLUMN synoptic_resolved_at TEXT`); } catch {}
+
+  // If every point has synoptic_resolved_at set but none have a station ID,
+  // the previous resolution run failed entirely (e.g. wrong API endpoint, bad
+  // token). Reset so they are re-tried on the next Synoptic poll cycle.
+  const { total, resolved, withStation } = db.prepare(`
+    SELECT
+      COUNT(*) AS total,
+      COUNT(synoptic_resolved_at) AS resolved,
+      COUNT(synoptic_station_id) AS withStation
+    FROM points
+  `).get() as { total: number; resolved: number; withStation: number };
+  if (resolved > 0 && withStation === 0 && resolved === total) {
+    db.run(`UPDATE points SET synoptic_resolved_at = NULL`);
+    console.log(`Reset ${resolved} stale Synoptic resolution records (no stations were found).`);
+  }
+
   seedPoints();
   console.log("Database schema initialized at", config.dbPath);
 }

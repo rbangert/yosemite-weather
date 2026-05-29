@@ -192,6 +192,7 @@ export interface LatestObservation {
   windDirection: number | null;
   relativeHumidity: number | null;
   precipLastHour: number | null;
+  snowDepth: number | null;
 }
 
 const val = (m: any): number | null =>
@@ -218,5 +219,6 @@ export async function fetchLatestObservation(
     windDirection: val(p.windDirection),
     relativeHumidity: val(p.relativeHumidity),
     precipLastHour: conv(p.precipitationLastHour, mmToIn),
+    snowDepth: conv(p.snowDepth, mmToIn),
   };
 }

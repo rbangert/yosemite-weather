@@ -1,6 +1,7 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import ForecastChart from '../components/ForecastChart.astro';
+import SummaryCard from '../components/SummaryCard.astro';
 import { fetchAreas, fetchForecast, fetchLatestObservation } from '../lib/api';
 import type { ForecastRow, ObservationRow } from '../lib/api';
 
@@ -102,6 +103,9 @@ const current = forecast[0] ?? null;
         {error}
       </div>
     )}
+
+    <!-- Summary card -->
+    <SummaryCard pointName={pointName} observation={observation} forecast={forecast} />
 
     <!-- Current conditions panel -->
     <div class="mb-6 rounded-xl border border-slate-800 bg-slate-900 p-6">

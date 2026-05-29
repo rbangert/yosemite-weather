@@ -25,6 +25,7 @@ export interface ObservationRow {
   wind_direction: number | null;
   relative_humidity: number | null;
   precip_last_hour: number | null;
+  snow_depth: number | null;
 }
 
 export interface PointOverview {

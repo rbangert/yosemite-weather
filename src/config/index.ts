@@ -15,6 +15,19 @@ export const config = {
   // Retry transient NWS failures (5xx/429/network) with exponential backoff.
   retryMaxAttempts: Number(process.env.NWS_RETRY_MAX_ATTEMPTS) || 3,
   retryBaseDelayMs: Number(process.env.NWS_RETRY_BASE_DELAY_MS) || 500,
+
+  // Synoptic Mesonet API (https://developers.synopticdata.com/)
+  // Set SYNOPTIC_API_TOKEN to enable; leave unset to disable Synoptic entirely.
+  synopticApiToken: process.env.SYNOPTIC_API_TOKEN ?? "",
+  synopticBaseUrl: "https://api.synopticdata.com/v2",
+  // Separate, longer poll interval to stay within free-tier service units
+  // (500 SU/day; 1 SU ≈ 1 station returned). Default 60 min keeps ~15
+  // stations × 24 cycles = 360 SU/day.
+  synopticPollIntervalMs: Number(process.env.SYNOPTIC_POLL_INTERVAL_MS) || 60 * 60 * 1000,
+  // Radius (miles) used when searching for the nearest Synoptic station to
+  // each configured point. Larger radius finds more stations but may return
+  // one that is far from the actual point.
+  synopticRadiusMiles: Number(process.env.SYNOPTIC_RADIUS_MILES) || 15,
 };
 
 // A monitored location, identified by coordinates. NWS resolves these to a

@@ -1,18 +1,36 @@
 ---
 import Layout from '../../layouts/Layout.astro';
 import ObsTable from '../../components/ObsTable.astro';
-import { fetchOverview } from '../../lib/api';
-import type { AreaOverview } from '../../lib/api';
+import SummaryCard from '../../components/SummaryCard.astro';
+import { fetchOverview, fetchForecast, fetchLatestObservation } from '../../lib/api';
+import type { AreaOverview, ForecastRow, ObservationRow } from '../../lib/api';
 
 const { area } = Astro.params;
 if (!area) return Astro.redirect('/');
 
+// One representative station per area drives the summary card.
+const AREA_REP: Record<string, { slug: string; name: string }> = {
+  'valley-west':  { slug: 'yosemite-valley',   name: 'Yosemite Valley' },
+  'south':        { slug: 'glacier-point',      name: 'Glacier Point' },
+  'high-country': { slug: 'tuolumne-meadows',   name: 'Tuolumne Meadows' },
+};
+
+const rep = AREA_REP[area] ?? null;
+
 let areaData: AreaOverview | undefined;
+let repForecast: ForecastRow[] = [];
+let repObservation: ObservationRow | null = null;
 let error: string | null = null;
 
 try {
-  const allAreas = await fetchOverview();
+  const [allAreas, forecast, observation] = await Promise.all([
+    fetchOverview(),
+    rep ? fetchForecast(rep.slug) : Promise.resolve([]),
+    rep ? fetchLatestObservation(rep.slug) : Promise.resolve(null),
+  ]);
   areaData = allAreas.find(a => a.slug === area);
+  repForecast = forecast;
+  repObservation = observation;
 } catch (e) {
   error = e instanceof Error ? e.message : 'Failed to load weather data';
 }
@@ -33,6 +51,10 @@ if (!areaData && !error) {
       <div class="mb-6 rounded-lg border border-red-800 bg-red-950 p-4 text-sm text-red-300">
         Could not load weather data: {error}
       </div>
+    )}
+
+    {rep && (
+      <SummaryCard pointName={rep.name} observation={repObservation} forecast={repForecast} />
     )}
 
     {areaData && (

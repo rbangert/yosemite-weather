@@ -1,11 +1,20 @@
 import { setupSchema } from "./db";
 import { startServer } from "./api/server";
-import { poll } from "./poller";
+import { poll, pollSynopticObservations } from "./poller";
 import { config } from "./config";
 
 setupSchema();
 startServer();
 
-// Initial poll on startup, then on interval
+// NWS: forecast + NWS station observations on a 15-min cycle.
 await poll();
 setInterval(poll, config.pollIntervalMs);
+
+// Synoptic: real-station observations on a longer cycle to stay within free-
+// tier service-unit limits. Skipped entirely when token is not configured.
+if (config.synopticApiToken) {
+  await pollSynopticObservations();
+  setInterval(pollSynopticObservations, config.synopticPollIntervalMs);
+} else {
+  console.log("SYNOPTIC_API_TOKEN not set — Synoptic observations disabled.");
+}

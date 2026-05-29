@@ -1,15 +1,28 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import ObsTable from '../components/ObsTable.astro';
-import { fetchOverview } from '../lib/api';
-import type { AreaOverview } from '../lib/api';
+import SummaryCard from '../components/SummaryCard.astro';
+import { fetchOverview, fetchForecast, fetchLatestObservation } from '../lib/api';
+import type { AreaOverview, ForecastRow, ObservationRow } from '../lib/api';
+
+// Yosemite Valley is the canonical representative for the Valley & West area.
+const REP_SLUG = 'yosemite-valley';
+const REP_NAME = 'Yosemite Valley';
 
 let areaData: AreaOverview | undefined;
+let repForecast: ForecastRow[] = [];
+let repObservation: ObservationRow | null = null;
 let error: string | null = null;
 
 try {
-  const allAreas = await fetchOverview();
+  const [allAreas, forecast, observation] = await Promise.all([
+    fetchOverview(),
+    fetchForecast(REP_SLUG),
+    fetchLatestObservation(REP_SLUG),
+  ]);
   areaData = allAreas.find(a => a.slug === 'valley-west');
+  repForecast = forecast;
+  repObservation = observation;
 } catch (e) {
   error = e instanceof Error ? e.message : 'Failed to load weather data';
 }
@@ -27,6 +40,8 @@ try {
         Could not load weather data: {error}
       </div>
     )}
+
+    <SummaryCard pointName={REP_NAME} observation={repObservation} forecast={repForecast} />
 
     {areaData && (
       <ObsTable points={areaData.points} areaSlug="valley-west" />
