@@ -1,0 +1,136 @@
+---
+import { getSunData, getMoonData, formatPacific, formatDayLength } from '../lib/sunMoon';
+
+interface Props {
+  lat: number;
+  lon: number;
+  date?: Date;
+}
+
+const { lat, lon, date = new Date() } = Astro.props;
+
+const sun = getSunData(date, lat, lon);
+const moon = getMoonData(date, lat, lon);
+---
+
+<div class="mb-6 overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
+  <div class="border-b border-slate-800 px-6 py-4">
+    <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">Sun &amp; Moon</h2>
+  </div>
+
+  <div class="grid grid-cols-1 divide-y divide-slate-800 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+
+    <!-- Sun column -->
+    <div class="p-6">
+      <div class="mb-5 flex items-center gap-2">
+        <i class="wi wi-day-sunny text-xl text-amber-400"></i>
+        <span class="text-sm font-semibold text-slate-200">Sun</span>
+      </div>
+
+      <div class="space-y-2">
+        <div class="flex items-center justify-between">
+          <span class="flex items-center gap-2 text-sm text-slate-400">
+            <i class="wi wi-horizon text-base text-slate-500"></i>
+            Dawn
+          </span>
+          <span class="tabular-nums text-sm text-slate-200">{formatPacific(sun.dawn)}</span>
+        </div>
+
+        <div class="flex items-center justify-between">
+          <span class="flex items-center gap-2 text-sm text-amber-300">
+            <i class="wi wi-sunrise text-base text-amber-400"></i>
+            Sunrise
+          </span>
+          <span class="tabular-nums text-sm font-medium text-amber-300">{formatPacific(sun.sunrise)}</span>
+        </div>
+
+        <div class="flex items-center justify-between">
+          <span class="flex items-center gap-2 text-sm text-slate-400">
+            <i class="wi wi-day-sunny text-base text-amber-400/60"></i>
+            Solar Noon
+          </span>
+          <span class="tabular-nums text-sm text-slate-200">{formatPacific(sun.solarNoon)}</span>
+        </div>
+
+        <div class="flex items-center justify-between">
+          <span class="flex items-center gap-2 text-sm text-amber-300">
+            <i class="wi wi-sunset text-base text-amber-400"></i>
+            Sunset
+          </span>
+          <span class="tabular-nums text-sm font-medium text-amber-300">{formatPacific(sun.sunset)}</span>
+        </div>
+
+        <div class="flex items-center justify-between">
+          <span class="flex items-center gap-2 text-sm text-slate-400">
+            <i class="wi wi-horizon-alt text-base text-slate-500"></i>
+            Dusk
+          </span>
+          <span class="tabular-nums text-sm text-slate-200">{formatPacific(sun.dusk)}</span>
+        </div>
+      </div>
+
+      <div class="mt-5 border-t border-slate-800 pt-4">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold uppercase tracking-wider text-slate-500">Day Length</span>
+          <span class="tabular-nums text-sm font-semibold text-slate-300">{formatDayLength(sun.dayLengthMinutes)}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Moon column -->
+    <div class="p-6">
+      <div class="mb-5 flex items-center gap-2">
+        <i class="wi wi-night-clear text-xl text-slate-300"></i>
+        <span class="text-sm font-semibold text-slate-200">Moon</span>
+      </div>
+
+      <!-- Phase display -->
+      <div class="mb-5 flex items-center gap-5">
+        <i class={`wi ${moon.phaseIcon} text-5xl text-slate-200`}></i>
+        <div>
+          <div class="text-sm font-semibold text-slate-200">{moon.phaseName}</div>
+          <div class="mt-0.5 text-xs text-slate-400">{moon.illumination}% illuminated</div>
+        </div>
+      </div>
+
+      <!-- Rise / set times -->
+      <div class="space-y-2">
+        {moon.moonrise && (
+          <div class="flex items-center justify-between">
+            <span class="flex items-center gap-2 text-sm text-slate-400">
+              <i class="wi wi-moonrise text-base text-slate-400"></i>
+              Moonrise
+            </span>
+            <span class="tabular-nums text-sm text-slate-200">{formatPacific(moon.moonrise)}</span>
+          </div>
+        )}
+
+        {moon.moonset && (
+          <div class="flex items-center justify-between">
+            <span class="flex items-center gap-2 text-sm text-slate-400">
+              <i class="wi wi-moonset text-base text-slate-400"></i>
+              Moonset
+            </span>
+            <span class="tabular-nums text-sm text-slate-200">{formatPacific(moon.moonset)}</span>
+          </div>
+        )}
+      </div>
+
+      <!-- Next phase -->
+      <div class="mt-5 border-t border-slate-800 pt-4">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold uppercase tracking-wider text-slate-500">Next Phase</span>
+          <span class="text-sm text-slate-300">
+            {moon.nextPhaseName}
+            {moon.daysToNextPhase === 0
+              ? ' · tonight'
+              : moon.daysToNextPhase === 1
+              ? ' · tomorrow'
+              : ` · in ${moon.daysToNextPhase} days`}
+          </span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>

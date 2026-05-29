@@ -3,6 +3,7 @@ import Layout from '../../layouts/Layout.astro';
 import ObsTable from '../../components/ObsTable.astro';
 import SummaryCard from '../../components/SummaryCard.astro';
 import PeriodForecast from '../../components/PeriodForecast.astro';
+import SunMoonCard from '../../components/SunMoonCard.astro';
 import { fetchOverview, fetchForecast, fetchLatestObservation, fetchPeriodForecast } from '../../lib/api';
 import type { AreaOverview, ForecastRow, ObservationRow, PeriodForecastRow } from '../../lib/api';
 
@@ -10,10 +11,10 @@ const { area } = Astro.params;
 if (!area) return Astro.redirect('/');
 
 // One representative station per area drives the summary card and 7-day forecast.
-const AREA_REP: Record<string, { slug: string; name: string }> = {
-  'valley-west':  { slug: 'yosemite-valley', name: 'Yosemite Valley' },
-  'south':        { slug: 'wawona',           name: 'Wawona' },
-  'high-country': { slug: 'tuolumne-meadows', name: 'Tuolumne Meadows' },
+const AREA_REP: Record<string, { slug: string; name: string; lat: number; lon: number }> = {
+  'valley-west':  { slug: 'yosemite-valley',  name: 'Yosemite Valley',  lat: 37.74539, lon: -119.59244 },
+  'south':        { slug: 'wawona',            name: 'Wawona',           lat: 37.53845, lon: -119.65851 },
+  'high-country': { slug: 'tuolumne-meadows',  name: 'Tuolumne Meadows', lat: 37.87522, lon: -119.35666 },
 };
 
 const rep = AREA_REP[area] ?? null;
@@ -62,6 +63,8 @@ if (!areaData && !error) {
     )}
 
     <PeriodForecast periods={repPeriods} />
+
+    {rep && <SunMoonCard lat={rep.lat} lon={rep.lon} />}
 
     {areaData && (
       <ObsTable points={areaData.points} areaSlug={area} />

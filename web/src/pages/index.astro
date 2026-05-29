@@ -3,12 +3,15 @@ import Layout from '../layouts/Layout.astro';
 import ObsTable from '../components/ObsTable.astro';
 import SummaryCard from '../components/SummaryCard.astro';
 import PeriodForecast from '../components/PeriodForecast.astro';
+import SunMoonCard from '../components/SunMoonCard.astro';
 import { fetchOverview, fetchForecast, fetchLatestObservation, fetchPeriodForecast } from '../lib/api';
 import type { AreaOverview, ForecastRow, ObservationRow, PeriodForecastRow } from '../lib/api';
 
 // Yosemite Valley is the canonical representative for the Valley & West area.
 const REP_SLUG = 'yosemite-valley';
 const REP_NAME = 'Yosemite Valley';
+const REP_LAT = 37.74539;
+const REP_LON = -119.59244;
 
 let areaData: AreaOverview | undefined;
 let repForecast: ForecastRow[] = [];
@@ -48,6 +51,8 @@ try {
     <SummaryCard pointName={REP_NAME} observation={repObservation} forecast={repForecast} />
 
     <PeriodForecast periods={repPeriods} />
+
+    <SunMoonCard lat={REP_LAT} lon={REP_LON} />
 
     {areaData && (
       <ObsTable points={areaData.points} areaSlug="valley-west" />
