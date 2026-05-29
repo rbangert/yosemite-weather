@@ -72,6 +72,29 @@ export async function fetchLatestObservation(slug: string): Promise<ObservationR
   return res.json() as Promise<ObservationRow>;
 }
 
+// --- Period forecast (7-day, 12-hour periods) --------------------------------
+
+export interface PeriodForecastRow {
+  period_number: number;
+  name: string;
+  start_time: string;
+  end_time: string;
+  is_daytime: 0 | 1;
+  temperature: number | null;
+  wind_speed: string | null;
+  wind_direction: string | null;
+  precip_prob: number | null;
+  short_forecast: string | null;
+  detailed_forecast: string | null;
+  icon_url: string | null;
+}
+
+export async function fetchPeriodForecast(slug: string): Promise<PeriodForecastRow[]> {
+  const res = await fetch(`${API_BASE}/api/points/${encodeURIComponent(slug)}/forecast/periods`);
+  if (!res.ok) throw new Error(`Period forecast fetch failed: ${res.status}`);
+  return res.json() as Promise<PeriodForecastRow[]>;
+}
+
 // --- Alerts -----------------------------------------------------------------
 
 export interface AlertRow {

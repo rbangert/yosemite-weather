@@ -413,7 +413,7 @@ adapted for Yosemite. Milestones are ordered roughly by priority; checked items 
 #### Milestone 3 — Richer forecast UI
 
 - [ ] Weather condition icons derived from sky cover / precip type _(ccweather: weather icons)_
-- [ ] 7-day extended forecast cards: daily high/low, icon, precip _(ccweather: 7-day forecast)_
+- [x] 7-day extended forecast — 12-hour day/night periods from NWS `/forecast` endpoint with NWS icons, color-coded temperature, wind, and precip _(ccweather: 7-day forecast)_
 - [ ] Timeframe tabs on the detail page (24h / 48h / 72h) _(ccweather: tabbed forecast nav)_
 - [ ] Additional chart series — wind & gusts, humidity, sky cover, snow level (toggleable)
 - [ ] Wind direction compass / barbs

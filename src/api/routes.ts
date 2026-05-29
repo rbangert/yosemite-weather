@@ -18,6 +18,9 @@ export function handleRequest(req: Request): Response {
   const latest = pathname.match(/^\/api\/points\/([^/]+)\/observations\/latest$/);
   if (latest) return handleLatestObservation(latest[1]);
 
+  const periods = pathname.match(/^\/api\/points\/([^/]+)\/forecast\/periods$/);
+  if (periods) return handlePeriodForecast(periods[1]);
+
   if (pathname === "/api/alerts") return handleAlerts();
   if (pathname === "/api/data-explorer") return handleDataExplorer();
 
@@ -132,6 +135,26 @@ function handleLatestObservation(slug: string): Response {
 
   if (!row) return json({ error: "No observations available for this point" }, 404);
   return json(row);
+}
+
+// NWS 7-day period forecast (12-hour day/night periods) for a point.
+// Returns only future periods, ordered by start_time.
+function handlePeriodForecast(slug: string): Response {
+  const db = getDb();
+  if (!pointExists(slug)) return json({ error: "Unknown point" }, 404);
+
+  const rows = db
+    .prepare(
+      `SELECT period_number, name, start_time, end_time, is_daytime,
+              temperature, wind_speed, wind_direction, precip_prob,
+              short_forecast, detailed_forecast, icon_url
+       FROM period_forecasts
+       WHERE point_slug = ? AND datetime(end_time) >= datetime('now')
+       ORDER BY start_time ASC`
+    )
+    .all(slug);
+
+  return json(rows);
 }
 
 // Active NWS alerts (not yet expired). Ordered most-severe first.

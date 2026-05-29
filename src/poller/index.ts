@@ -3,9 +3,11 @@ import { config } from "../config";
 import {
   resolvePoint,
   fetchGridpointForecast,
+  fetchPeriodForecast,
   fetchLatestObservation,
   fetchActiveAlerts,
   type ForecastHour,
+  type ForecastPeriod,
   type LatestObservation,
   type NwsAlert,
 } from "../nws/client";
@@ -51,6 +53,7 @@ export async function poll(): Promise<{ forecasts: number; observations: number 
     try {
       const resolved = await ensureResolved(point);
       forecastCount += await pollForecast(point.slug, resolved);
+      await pollPeriodForecast(point.slug, resolved);
       obsCount += await pollObservation(point.slug, resolved.observation_station_id);
     } catch (err) {
       console.error(`  ${point.slug}: ${(err as Error).message}`);
@@ -163,6 +166,54 @@ function writeObservation(slug: string, stationId: string, obs: LatestObservatio
       obs.precipLastHour, obs.snowDepth
     );
   return result.changes > 0 ? 1 : 0;
+}
+
+// --- Period forecast polling ------------------------------------------------
+
+async function pollPeriodForecast(slug: string, p: PointRow): Promise<void> {
+  if (p.grid_id == null || p.grid_x == null || p.grid_y == null) return;
+  try {
+    const periods = await fetchPeriodForecast(p.grid_id, p.grid_x, p.grid_y);
+    writePeriodForecast(slug, periods);
+  } catch (err) {
+    // Period forecast is best-effort; don't abort the poll cycle on failure.
+    console.warn(`  ${slug}: period forecast failed — ${(err as Error).message}`);
+  }
+}
+
+function writePeriodForecast(slug: string, periods: ForecastPeriod[]): void {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const upsert = db.prepare(`
+    INSERT INTO period_forecasts (
+      point_slug, period_number, name, start_time, end_time, is_daytime,
+      temperature, wind_speed, wind_direction, precip_prob,
+      short_forecast, detailed_forecast, icon_url, fetched_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(point_slug, start_time) DO UPDATE SET
+      period_number     = excluded.period_number,
+      name              = excluded.name,
+      end_time          = excluded.end_time,
+      is_daytime        = excluded.is_daytime,
+      temperature       = excluded.temperature,
+      wind_speed        = excluded.wind_speed,
+      wind_direction    = excluded.wind_direction,
+      precip_prob       = excluded.precip_prob,
+      short_forecast    = excluded.short_forecast,
+      detailed_forecast = excluded.detailed_forecast,
+      icon_url          = excluded.icon_url,
+      fetched_at        = excluded.fetched_at
+  `);
+  const tx = db.transaction(() => {
+    for (const p of periods) {
+      upsert.run(
+        slug, p.number, p.name, p.startTime, p.endTime,
+        p.isDaytime ? 1 : 0, p.temperature, p.windSpeed, p.windDirection,
+        p.precipProb, p.shortForecast, p.detailedForecast, p.iconUrl, now
+      );
+    }
+  });
+  tx();
 }
 
 // --- Alert polling ----------------------------------------------------------

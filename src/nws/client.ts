@@ -253,6 +253,47 @@ export async function fetchActiveAlerts(zones: string[]): Promise<NwsAlert[]> {
   return alerts;
 }
 
+// --- Period forecast (7-day, 12-hour periods) --------------------------------
+
+export interface ForecastPeriod {
+  number: number;
+  name: string;
+  startTime: string;
+  endTime: string;
+  isDaytime: boolean;
+  temperature: number;      // °F
+  windSpeed: string;        // NWS text, e.g. "10 to 15 mph"
+  windDirection: string;    // "W", "NW", etc.
+  precipProb: number | null;
+  shortForecast: string;
+  detailedForecast: string;
+  iconUrl: string;
+}
+
+export async function fetchPeriodForecast(
+  gridId: string,
+  gridX: number,
+  gridY: number
+): Promise<ForecastPeriod[]> {
+  const data = await nwsFetch(
+    `${config.nwsBaseUrl}/gridpoints/${gridId}/${gridX},${gridY}/forecast`
+  );
+  return (data.properties?.periods ?? []).map((p: any): ForecastPeriod => ({
+    number: p.number,
+    name: p.name,
+    startTime: p.startTime,
+    endTime: p.endTime,
+    isDaytime: p.isDaytime,
+    temperature: p.temperature,
+    windSpeed: p.windSpeed ?? "",
+    windDirection: p.windDirection ?? "",
+    precipProb: p.probabilityOfPrecipitation?.value ?? null,
+    shortForecast: p.shortForecast ?? "",
+    detailedForecast: p.detailedForecast ?? "",
+    iconUrl: p.icon ?? "",
+  }));
+}
+
 export async function fetchLatestObservation(
   stationId: string
 ): Promise<LatestObservation | null> {

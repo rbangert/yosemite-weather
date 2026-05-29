@@ -1,0 +1,106 @@
+---
+import type { PeriodForecastRow } from '../lib/api';
+
+interface Props {
+  periods: PeriodForecastRow[];
+}
+
+const { periods } = Astro.props;
+if (!periods.length) return;
+
+function tempColor(t: number | null, isDay: boolean): string {
+  if (t === null) return 'text-slate-500';
+  if (!isDay) return 'text-slate-400';         // lows always muted
+  if (t < 32)  return 'text-blue-300';
+  if (t < 45)  return 'text-sky-300';
+  if (t < 60)  return 'text-emerald-300';
+  if (t < 72)  return 'text-amber-200';
+  if (t < 85)  return 'text-orange-300';
+  return 'text-red-400';
+}
+
+// NWS icons come through as ?size=medium; swap to small for the table.
+function iconUrl(url: string | null): string | null {
+  if (!url) return null;
+  return url.replace('?size=medium', '?size=small').replace('?size=large', '?size=small');
+}
+
+// Each row belongs to a "day group" (pair of day+night periods). Group index
+// is used for alternating background.
+function groupIndex(i: number, periods: PeriodForecastRow[]): number {
+  // Count how many times isDaytime flipped from true→false before this index.
+  let g = 0;
+  for (let j = 0; j < i; j++) {
+    if (periods[j].is_daytime && j + 1 < periods.length && !periods[j + 1].is_daytime) g++;
+    // Night-only leading period counts as its own group
+  }
+  return g;
+}
+---
+
+<div class="mb-6 overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
+  <div class="border-b border-slate-800 px-6 py-4">
+    <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">7-Day Forecast</h2>
+  </div>
+
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-slate-800 text-xs font-medium uppercase tracking-wide text-slate-500">
+          <th class="px-4 py-3 text-left">Period</th>
+          <th class="px-3 py-3 text-left">Conditions</th>
+          <th class="px-4 py-3 text-right">Temp</th>
+          <th class="hidden px-4 py-3 text-left sm:table-cell">Wind</th>
+          <th class="px-4 py-3 text-right">Precip</th>
+        </tr>
+      </thead>
+      <tbody>
+        {periods.map((row, i) => {
+          const isDay = row.is_daytime === 1;
+          const g = groupIndex(i, periods);
+          const rowBg = isDay
+            ? (g % 2 === 0 ? '' : 'bg-slate-800/20')
+            : (g % 2 === 0 ? 'bg-slate-800/30' : 'bg-slate-800/50');
+          const icon = iconUrl(row.icon_url);
+          const precip = row.precip_prob ?? 0;
+
+          return (
+            <tr class={`border-b border-slate-800/40 ${rowBg}`}>
+              <td class="whitespace-nowrap px-4 py-2.5">
+                <span class={`font-medium ${isDay ? 'text-slate-200' : 'text-slate-400'}`}>
+                  {row.name}
+                </span>
+              </td>
+              <td class="px-3 py-2.5">
+                <div class="flex items-center gap-2">
+                  {icon && (
+                    <img
+                      src={icon}
+                      alt={row.short_forecast ?? ''}
+                      width="32"
+                      height="32"
+                      class="shrink-0"
+                      loading="lazy"
+                    />
+                  )}
+                  <span class="text-slate-300">{row.short_forecast ?? '—'}</span>
+                </div>
+              </td>
+              <td class={`px-4 py-2.5 text-right tabular-nums font-semibold ${tempColor(row.temperature, isDay)}`}>
+                {row.temperature !== null ? `${row.temperature}°F` : '—'}
+              </td>
+              <td class="hidden whitespace-nowrap px-4 py-2.5 text-slate-400 sm:table-cell">
+                {row.wind_speed && row.wind_direction
+                  ? `${row.wind_direction} ${row.wind_speed}`
+                  : (row.wind_speed ?? '—')}
+              </td>
+              <td class={`px-4 py-2.5 text-right tabular-nums ${precip >= 20 ? 'text-blue-400' : 'text-slate-600'}`}>
+                {precip > 0 ? `${Math.round(precip)}%` : '—'}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  </div>
+</div>

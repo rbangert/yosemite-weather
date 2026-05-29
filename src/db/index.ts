@@ -87,6 +87,35 @@ export function setupSchema(): void {
     ON observations(point_slug, observed_at DESC)
   `);
 
+  // NWS 7-day period forecast — 12-hour day/night periods with text + icons.
+  // Upserted on (point_slug, start_time); pruned when end_time passes.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS period_forecasts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      point_slug TEXT NOT NULL,
+      period_number INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      is_daytime INTEGER NOT NULL,
+      temperature INTEGER,
+      wind_speed TEXT,
+      wind_direction TEXT,
+      precip_prob REAL,
+      short_forecast TEXT,
+      detailed_forecast TEXT,
+      icon_url TEXT,
+      fetched_at TEXT NOT NULL,
+      FOREIGN KEY (point_slug) REFERENCES points(slug),
+      UNIQUE(point_slug, start_time)
+    )
+  `);
+
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_period_point_start
+    ON period_forecasts(point_slug, start_time)
+  `);
+
   // NWS active alerts — park-wide watches/warnings/advisories. One row per NWS
   // alert ID; upserted on each poll so headline/description stay current.
   db.run(`
@@ -164,6 +193,9 @@ export function pruneOldData(): { forecasts: number; observations: number } {
     Date.now() - config.observationRetentionDays * 86_400_000
   ).toISOString();
 
+  const p = db.prepare(
+    `DELETE FROM period_forecasts WHERE datetime(end_time) < datetime('now')`
+  ).run();
   const f = db.prepare(`DELETE FROM forecasts WHERE valid_time < ?`).run(nowHour);
   const o = db.prepare(`DELETE FROM observations WHERE observed_at < ?`).run(obsCutoff);
   // Remove alerts that have fully expired (use ends when present, else expires).
@@ -171,7 +203,7 @@ export function pruneOldData(): { forecasts: number; observations: number } {
     `DELETE FROM alerts WHERE COALESCE(ends, expires) < ?`
   ).run(new Date().toISOString());
 
-  return { forecasts: f.changes, observations: o.changes, alerts: a.changes };
+  return { periods: p.changes, forecasts: f.changes, observations: o.changes, alerts: a.changes };
 }
 
 export function closeDb(): void {
