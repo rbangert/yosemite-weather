@@ -90,10 +90,12 @@ export async function resolvePoint(lat: number, lon: number): Promise<ResolvedPo
 export interface ForecastHour {
   validTime: string; // ISO hour (UTC)
   airTemp: number | null;
+  dewpoint: number | null;
   windSpeed: number | null;
   windGust: number | null;
   windDirection: number | null;
   precipProb: number | null;
+  thunderProb: number | null;
   relativeHumidity: number | null;
   snowfallAmount: number | null;
   snowLevel: number | null;
@@ -153,10 +155,12 @@ export async function fetchGridpointForecast(
   const p = data.properties;
 
   const temp = expandLayer(p.temperature, { convert: cToF });
+  const dewpoint = expandLayer(p.dewpoint, { convert: cToF });
   const windSpeed = expandLayer(p.windSpeed, { convert: kmhToMph });
   const windGust = expandLayer(p.windGust, { convert: kmhToMph });
   const windDir = expandLayer(p.windDirection);
   const pop = expandLayer(p.probabilityOfPrecipitation);
+  const thunder = expandLayer(p.probabilityOfThunder);
   const rh = expandLayer(p.relativeHumidity);
   const snowfall = expandLayer(p.snowfallAmount, { accumulation: true, convert: mmToIn });
   const snowLevel = expandLayer(p.snowLevel, { convert: mToFt });
@@ -171,10 +175,12 @@ export async function fetchGridpointForecast(
   return hours.map((k) => ({
     validTime: k,
     airTemp: temp.get(k) ?? null,
+    dewpoint: dewpoint.get(k) ?? null,
     windSpeed: windSpeed.get(k) ?? null,
     windGust: windGust.get(k) ?? null,
     windDirection: windDir.get(k) ?? null,
     precipProb: pop.get(k) ?? null,
+    thunderProb: thunder.get(k) ?? null,
     relativeHumidity: rh.get(k) ?? null,
     snowfallAmount: snowfall.get(k) ?? null,
     snowLevel: snowLevel.get(k) ?? null,

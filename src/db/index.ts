@@ -64,6 +64,14 @@ export function setupSchema(): void {
     ON forecasts(point_slug, valid_time)
   `);
 
+  // Additive migrations: add new columns to forecasts if not present.
+  for (const ddl of [
+    `ALTER TABLE forecasts ADD COLUMN dewpoint REAL`,       // °F
+    `ALTER TABLE forecasts ADD COLUMN thunder_prob REAL`,   // %
+  ]) {
+    try { db.run(ddl); } catch { /* column already exists */ }
+  }
+
   // Latest measured conditions from the nearest NWS station, where one exists.
   db.run(`
     CREATE TABLE IF NOT EXISTS observations (

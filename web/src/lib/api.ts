@@ -3,10 +3,12 @@ const API_BASE = import.meta.env.API_BASE ?? "http://localhost:3000";
 export interface ForecastRow {
   valid_time: string;
   air_temp: number | null;
+  dewpoint: number | null;
   wind_speed: number | null;
   wind_gust: number | null;
   wind_direction: number | null;
   precip_prob: number | null;
+  thunder_prob: number | null;
   relative_humidity: number | null;
   snowfall_amount: number | null;
   snow_level: number | null;

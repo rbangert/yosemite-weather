@@ -2,7 +2,7 @@
 import Layout from '../../layouts/Layout.astro';
 import ObsTable from '../../components/ObsTable.astro';
 import SummaryCard from '../../components/SummaryCard.astro';
-import PeriodForecast from '../../components/PeriodForecast.astro';
+import ForecastTabs from '../../components/ForecastTabs.astro';
 import SunMoonCard from '../../components/SunMoonCard.astro';
 import SWECard from '../../components/SWECard.astro';
 import { fetchOverview, fetchForecast, fetchLatestObservation, fetchPeriodForecast } from '../../lib/api';
@@ -68,7 +68,7 @@ if (!areaData && !error) {
       <SummaryCard pointName={rep.name} observation={repObservation} forecast={repForecast} />
     )}
 
-    <PeriodForecast periods={repPeriods} />
+    <ForecastTabs periods={repPeriods} forecast={repForecast} area={area} />
 
     {rep && <SunMoonCard lat={rep.lat} lon={rep.lon} />}
 

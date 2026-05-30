@@ -4,9 +4,10 @@ import { nwsIcon } from '../lib/nwsIcons';
 
 interface Props {
   periods: PeriodForecastRow[];
+  bare?: boolean;
 }
 
-const { periods } = Astro.props;
+const { periods, bare = false } = Astro.props;
 if (!periods.length) return;
 
 function tempColor(t: number | null): string {
@@ -48,10 +49,12 @@ function groupIndex(i: number): number {
 }
 ---
 
-<div class="mb-6 overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
-  <div class="border-b border-slate-800 px-6 py-4">
-    <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">7-Day Forecast</h2>
-  </div>
+<div class:list={[!bare && 'mb-6 overflow-hidden rounded-xl border border-slate-800 bg-slate-900']}>
+  {!bare && (
+    <div class="border-b border-slate-800 px-6 py-4">
+      <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">7-Day Forecast</h2>
+    </div>
+  )}
 
   <div class="overflow-x-auto">
     <table class="w-full text-sm">

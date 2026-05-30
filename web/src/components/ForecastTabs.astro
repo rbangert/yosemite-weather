@@ -1,0 +1,102 @@
+---
+import PeriodForecast from './PeriodForecast.astro';
+import HourlyGraph from './HourlyGraph.astro';
+import type { ForecastRow, PeriodForecastRow } from '../lib/api';
+
+interface Props {
+  periods: PeriodForecastRow[];
+  forecast: ForecastRow[];
+  area: string;
+}
+
+const { periods, forecast, area } = Astro.props;
+---
+
+<div class="mb-6 overflow-hidden rounded-xl border border-slate-800 bg-slate-900" id="forecast-tabs-card">
+
+  <!-- Tab bar -->
+  <div class="flex border-b border-slate-800 px-2" role="tablist">
+    <button
+      role="tab"
+      aria-selected="true"
+      aria-controls="ft-panel-7day"
+      data-tab-id="7day"
+      class="ft-tab-btn relative px-3 py-3 text-left focus:outline-none text-[#8BE9FD]"
+    >
+      <span class="block text-sm font-medium">7-Day Forecast</span>
+      <span class="ft-tab-indicator absolute bottom-0 left-0 right-0 h-0.5 rounded-full opacity-100" style="background:#8BE9FD"></span>
+    </button>
+    <button
+      role="tab"
+      aria-selected="false"
+      aria-controls="ft-panel-hourly"
+      data-tab-id="hourly"
+      class="ft-tab-btn relative px-3 py-3 text-left focus:outline-none text-[#6272A4] hover:text-[#F8F8F2] transition-colors"
+    >
+      <span class="block text-sm font-medium">Hourly</span>
+      <span class="ft-tab-indicator absolute bottom-0 left-0 right-0 h-0.5 rounded-full opacity-0" style="background:#8BE9FD"></span>
+    </button>
+  </div>
+
+  <!-- 7-Day panel (visible by default) -->
+  <div
+    id="ft-panel-7day"
+    role="tabpanel"
+    data-panel-id="7day"
+    class="ft-panel"
+  >
+    {periods.length > 0
+      ? <PeriodForecast periods={periods} bare={true} />
+      : <p class="px-6 py-8 text-sm text-slate-500">No forecast data available.</p>
+    }
+  </div>
+
+  <!-- Hourly panel (hidden until first activation; charts init lazily) -->
+  <div
+    id="ft-panel-hourly"
+    role="tabpanel"
+    data-panel-id="hourly"
+    class="ft-panel hidden p-4 pt-2"
+  >
+    {forecast.length > 0
+      ? <HourlyGraph forecast={forecast} area={area} />
+      : <p class="py-6 text-sm text-slate-500">No hourly data available.</p>
+    }
+  </div>
+
+</div>
+
+<script>
+  const card = document.getElementById('forecast-tabs-card');
+  if (card) {
+    const tabs = card.querySelectorAll<HTMLButtonElement>('.ft-tab-btn');
+    let hourlyActivated = false;
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const targetId = tab.dataset.tabId!;
+
+        tabs.forEach(t => {
+          const active = t.dataset.tabId === targetId;
+          t.setAttribute('aria-selected', String(active));
+          t.style.color = active ? '#8BE9FD' : '';
+          t.classList.toggle('text-[#8BE9FD]', active);
+          t.classList.toggle('text-[#6272A4]', !active);
+          const ind = t.querySelector<HTMLSpanElement>('.ft-tab-indicator');
+          if (ind) ind.style.opacity = active ? '1' : '0';
+        });
+
+        // Toggle panels with display (not opacity) so inactive panel takes no space
+        card.querySelectorAll<HTMLDivElement>('.ft-panel').forEach(panel => {
+          panel.classList.toggle('hidden', panel.dataset.panelId !== targetId);
+        });
+
+        // Lazy-initialise charts on first hourly activation
+        if (targetId === 'hourly' && !hourlyActivated) {
+          hourlyActivated = true;
+          document.dispatchEvent(new CustomEvent('ft-hourly-activate'));
+        }
+      });
+    });
+  }
+</script>
