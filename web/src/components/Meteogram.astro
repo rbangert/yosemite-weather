@@ -253,6 +253,31 @@ function cardinal(deg: number | null): string {
       },
     };
 
+    // Dry-air reference line (humidity panel only): a faint amber dashed line at
+    // 15% RH — the critical fire-weather threshold. Mirrors the freezing line.
+    const dryLinePlugin = {
+      id: 'dryLine',
+      afterDatasetsDraw(chart: Chart) {
+        const y = chart.scales.y;
+        const py = y.getPixelForValue(15);
+        const { ctx, chartArea } = chart;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255,184,108,0.28)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath();
+        ctx.moveTo(chartArea.left, py);
+        ctx.lineTo(chartArea.right, py);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(255,184,108,0.5)';
+        ctx.font = '9px sans-serif';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('15% dry', chartArea.left + 3, py - 1);
+        ctx.restore();
+      },
+    };
+
     // X-axis config: only the bottom panel (RH) prints hour labels.
     const xHidden = { grid: { color: GRID }, border: { display: false }, ticks: { display: false } };
     const xLabelled = {
@@ -495,7 +520,7 @@ function cardinal(deg: number | null): string {
             },
           },
         },
-        plugins: [nightShadePlugin, nowLinePlugin],
+        plugins: [nightShadePlugin, dryLinePlugin, nowLinePlugin],
       });
 
       // ── Cross-chart tooltip sync ──────────────────────────────────────────
