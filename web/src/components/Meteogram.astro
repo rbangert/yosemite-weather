@@ -70,7 +70,7 @@ function cardinal(deg: number | null): string {
     <span class="flex items-center gap-1.5"><span class="inline-block h-2 w-3 rounded-sm" style="background:rgba(80,250,123,0.35)"></span>Wind</span>
     <span class="flex items-center gap-1.5"><span class="inline-block h-2 w-3 rounded-sm" style="background:rgba(98,114,164,0.6)"></span>Sky</span>
     <span class="flex items-center gap-1.5"><span class="inline-block h-2 w-3 rounded-sm" style="background:rgba(139,233,253,0.5)"></span>Precip%</span>
-    <span class="flex items-center gap-1.5"><span class="inline-block h-2 w-3 rounded-sm" style="background:rgba(255,184,108,0.55)"></span>Thunder%</span>
+    <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-4 bg-[#FFB86C]"></span>Thunder%</span>
     <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-4 bg-[#BD93F9]"></span>Humidity</span>
     <span class="flex items-center gap-1.5"><span class="inline-block h-2 w-3 rounded-sm" style="background:rgba(20,21,33,0.85)"></span>Night</span>
   </div>
@@ -417,21 +417,22 @@ function cardinal(deg: number | null): string {
         plugins: [nightShadePlugin, nowLinePlugin],
       });
 
-      // ── Graph 4: Precipitation Potential (+ Thunder) ──────────────────────
+      // ── Graph 4: Precipitation Potential (+ Thunder overlay) ──────────────
       const chartPrecip = new Chart(document.getElementById('mg-precip') as HTMLCanvasElement, {
         data: {
           labels,
           datasets: [
             {
+              // Full-width POP bars read as a solid probability area.
               type: 'bar', label: 'Precip %', data: raw.map(r => r.precip),
-              backgroundColor: 'rgba(139,233,253,0.45)', borderColor: 'rgba(139,233,253,0.7)',
-              borderWidth: 1, categoryPercentage: 0.95, order: 2,
+              backgroundColor: 'rgba(139,233,253,0.40)',
+              borderWidth: 0, categoryPercentage: 1.0, barPercentage: 1.0,
             },
             {
-              type: 'bar', label: 'Thunder %', data: raw.map(r => r.thunder),
-              backgroundColor: 'rgba(255,184,108,0.5)', borderColor: 'rgba(255,184,108,0.75)',
-              borderWidth: 1, categoryPercentage: 0.95, order: 1,
-            },
+              // Thunder chance overlaid as a distinct line on top of the bars.
+              type: 'line', label: 'Thunder %', data: raw.map(r => r.thunder), fill: false,
+              borderColor: '#FFB86C', borderWidth: 1.5, pointRadius: 0, tension: 0.4, spanGaps: true,
+            } as any,
           ],
         },
         options: {
