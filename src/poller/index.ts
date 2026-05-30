@@ -184,29 +184,23 @@ async function pollPeriodForecast(slug: string, p: PointRow): Promise<void> {
 function writePeriodForecast(slug: string, periods: ForecastPeriod[]): void {
   const db = getDb();
   const now = new Date().toISOString();
-  const upsert = db.prepare(`
+
+  // NWS silently shifts period start_times between polls (e.g. "Today" moves
+  // from T08:00 → T11:00 as time passes). An upsert keyed on start_time leaves
+  // the old row untouched, so stale rows accumulate and the same calendar day
+  // can appear 3–4 times in the table. Fix: delete all rows for this point
+  // inside the transaction and insert the fresh set wholesale.
+  const insert = db.prepare(`
     INSERT INTO period_forecasts (
       point_slug, period_number, name, start_time, end_time, is_daytime,
       temperature, wind_speed, wind_direction, precip_prob,
       short_forecast, detailed_forecast, icon_url, fetched_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(point_slug, start_time) DO UPDATE SET
-      period_number     = excluded.period_number,
-      name              = excluded.name,
-      end_time          = excluded.end_time,
-      is_daytime        = excluded.is_daytime,
-      temperature       = excluded.temperature,
-      wind_speed        = excluded.wind_speed,
-      wind_direction    = excluded.wind_direction,
-      precip_prob       = excluded.precip_prob,
-      short_forecast    = excluded.short_forecast,
-      detailed_forecast = excluded.detailed_forecast,
-      icon_url          = excluded.icon_url,
-      fetched_at        = excluded.fetched_at
   `);
   const tx = db.transaction(() => {
+    db.prepare(`DELETE FROM period_forecasts WHERE point_slug = ?`).run(slug);
     for (const p of periods) {
-      upsert.run(
+      insert.run(
         slug, p.number, p.name, p.startTime, p.endTime,
         p.isDaytime ? 1 : 0, p.temperature, p.windSpeed, p.windDirection,
         p.precipProb, p.shortForecast, p.detailedForecast, p.iconUrl, now
