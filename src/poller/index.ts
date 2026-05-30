@@ -113,13 +113,14 @@ function writeForecast(slug: string, hours: ForecastHour[]): number {
 
   const upsert = db.prepare(`
     INSERT INTO forecasts (
-      point_slug, valid_time, fetched_at, air_temp, dewpoint, wind_speed, wind_gust,
+      point_slug, valid_time, fetched_at, air_temp, apparent_temp, dewpoint, wind_speed, wind_gust,
       wind_direction, precip_prob, thunder_prob, relative_humidity, snowfall_amount,
       snow_level, sky_cover
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(point_slug, valid_time) DO UPDATE SET
       fetched_at = excluded.fetched_at,
       air_temp = excluded.air_temp,
+      apparent_temp = excluded.apparent_temp,
       dewpoint = excluded.dewpoint,
       wind_speed = excluded.wind_speed,
       wind_gust = excluded.wind_gust,
@@ -135,7 +136,7 @@ function writeForecast(slug: string, hours: ForecastHour[]): number {
   const tx = db.transaction(() => {
     for (const h of hours) {
       upsert.run(
-        slug, h.validTime, now, h.airTemp, h.dewpoint, h.windSpeed, h.windGust,
+        slug, h.validTime, now, h.airTemp, h.apparentTemp, h.dewpoint, h.windSpeed, h.windGust,
         h.windDirection, h.precipProb, h.thunderProb, h.relativeHumidity,
         h.snowfallAmount, h.snowLevel, h.skyCover
       );

@@ -90,6 +90,7 @@ export async function resolvePoint(lat: number, lon: number): Promise<ResolvedPo
 export interface ForecastHour {
   validTime: string; // ISO hour (UTC)
   airTemp: number | null;
+  apparentTemp: number | null;
   dewpoint: number | null;
   windSpeed: number | null;
   windGust: number | null;
@@ -155,6 +156,7 @@ export async function fetchGridpointForecast(
   const p = data.properties;
 
   const temp = expandLayer(p.temperature, { convert: cToF });
+  const apparentTemp = expandLayer(p.apparentTemperature, { convert: cToF });
   const dewpoint = expandLayer(p.dewpoint, { convert: cToF });
   const windSpeed = expandLayer(p.windSpeed, { convert: kmhToMph });
   const windGust = expandLayer(p.windGust, { convert: kmhToMph });
@@ -175,6 +177,7 @@ export async function fetchGridpointForecast(
   return hours.map((k) => ({
     validTime: k,
     airTemp: temp.get(k) ?? null,
+    apparentTemp: apparentTemp.get(k) ?? null,
     dewpoint: dewpoint.get(k) ?? null,
     windSpeed: windSpeed.get(k) ?? null,
     windGust: windGust.get(k) ?? null,
