@@ -1,0 +1,443 @@
+---
+import type { ForecastRow } from '../lib/api';
+
+interface Props {
+  forecast: ForecastRow[];
+  area: string;
+}
+
+const { forecast, area } = Astro.props;
+if (!forecast.length) return;
+
+// Compact payload mirrored client-side; one entry per forecast hour.
+const payload = forecast.map(row => ({
+  t: row.valid_time,
+  temp: row.air_temp,
+  apparent: row.apparent_temp,
+  dew: row.dewpoint,
+  wind: row.wind_speed,
+  gust: row.wind_gust,
+  dir: row.wind_direction,
+  sky: row.sky_cover,
+  precip: row.precip_prob,
+  thunder: row.thunder_prob,
+  rh: row.relative_humidity,
+}));
+
+// Wind direction arrow: "↑" rotated to point the way the wind blows TO.
+// NWS dir is the bearing the wind comes FROM, so add 180° for flow direction.
+function arrowStyle(deg: number | null): string {
+  if (deg === null) return 'display:none';
+  return `transform:rotate(${Math.round(deg + 180)}deg);display:inline-block`;
+}
+---
+
+<div id="meteogram" data-forecast={JSON.stringify(payload)} data-area={area}>
+  <!-- Legend -->
+  <div class="flex flex-wrap gap-x-4 gap-y-0.5 px-1 pb-2 pt-1 text-[11px] text-slate-500">
+    <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-4 bg-[#FFB86C]"></span>Temp</span>
+    <span class="flex items-center gap-1.5"><span class="inline-block w-4 border-t border-dashed border-[#50FA7B]"></span>Dewpoint</span>
+    <span class="flex items-center gap-1.5"><span class="inline-block w-4 border-t border-dashed border-[#FF5555]"></span>Feels like</span>
+    <span class="flex items-center gap-1.5"><span class="inline-block h-2 w-3 rounded-sm" style="background:rgba(80,250,123,0.35)"></span>Wind</span>
+    <span class="flex items-center gap-1.5"><span class="inline-block h-2 w-3 rounded-sm" style="background:rgba(98,114,164,0.6)"></span>Sky</span>
+    <span class="flex items-center gap-1.5"><span class="inline-block h-2 w-3 rounded-sm" style="background:rgba(139,233,253,0.5)"></span>Precip%</span>
+    <span class="flex items-center gap-1.5"><span class="inline-block h-2 w-3 rounded-sm" style="background:rgba(255,184,108,0.55)"></span>Thunder%</span>
+    <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-4 bg-[#BD93F9]"></span>Humidity</span>
+  </div>
+
+  <div class="overflow-x-auto">
+    <div class="min-w-[680px]">
+
+      <!-- Graph 1: Temperature + Dewpoint + Apparent -->
+      <div class="px-1 text-[10px] uppercase tracking-wide text-slate-500">Temperature</div>
+      <div class="relative" style="height:130px"><canvas id="mg-temp"></canvas></div>
+
+      <!-- Graph 2: Surface Wind (+ gust) -->
+      <div class="mt-2 px-1 text-[10px] uppercase tracking-wide text-slate-500">Surface Wind</div>
+      <div class="relative" style="height:90px"><canvas id="mg-wind"></canvas></div>
+      <!-- Wind direction strip: arrows point the way the wind blows -->
+      <div class="flex select-none" aria-hidden="true">
+        {payload.map((pt, i) => (
+          <span class="flex-1 flex items-center justify-center" style="height:14px">
+            {i % 6 === 0
+              ? <span class="text-[9px] text-slate-500" style={arrowStyle(pt.dir)}>↑</span>
+              : ''}
+          </span>
+        ))}
+      </div>
+
+      <!-- Graph 3: Sky Cover -->
+      <div class="mt-2 px-1 text-[10px] uppercase tracking-wide text-slate-500">Sky Cover</div>
+      <div class="relative" style="height:50px"><canvas id="mg-sky"></canvas></div>
+
+      <!-- Graph 4: Precipitation Potential (+ Thunder) -->
+      <div class="mt-2 px-1 text-[10px] uppercase tracking-wide text-slate-500">Precipitation Potential</div>
+      <div class="relative" style="height:80px"><canvas id="mg-precip"></canvas></div>
+
+      <!-- Graph 5: Relative Humidity (bottom panel carries the x-axis labels) -->
+      <div class="mt-2 px-1 text-[10px] uppercase tracking-wide text-slate-500">Relative Humidity</div>
+      <div class="relative" style="height:96px"><canvas id="mg-rh"></canvas></div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  import {
+    Chart,
+    LineController,
+    BarController,
+    LineElement,
+    BarElement,
+    PointElement,
+    LinearScale,
+    CategoryScale,
+    Tooltip,
+    Filler,
+  } from 'chart.js';
+
+  Chart.register(
+    LineController, BarController, LineElement, BarElement,
+    PointElement, LinearScale, CategoryScale, Tooltip, Filler,
+  );
+
+  type Row = {
+    t: string;
+    temp: number | null; apparent: number | null; dew: number | null;
+    wind: number | null; gust: number | null; dir: number | null;
+    sky: number | null; precip: number | null; thunder: number | null;
+    rh: number | null;
+  };
+
+  const wrapper = document.getElementById('meteogram') as HTMLDivElement | null;
+  if (wrapper) {
+    const raw: Row[] = JSON.parse(wrapper.dataset.forecast!);
+
+    const toC  = (f: number | null): number | null => f !== null ? Math.round((f - 32) * 5 / 9) : null;
+    const toKh = (m: number | null): number | null => m !== null ? Math.round(m * 1.60934) : null;
+
+    let currentSys = localStorage.getItem('units') ?? 'imperial';
+
+    const getTemps    = () => currentSys === 'metric' ? raw.map(r => toC(r.temp))     : raw.map(r => r.temp);
+    const getDews     = () => currentSys === 'metric' ? raw.map(r => toC(r.dew))      : raw.map(r => r.dew);
+    const getApparent = () => currentSys === 'metric' ? raw.map(r => toC(r.apparent)) : raw.map(r => r.apparent);
+    const getWinds    = () => currentSys === 'metric' ? raw.map(r => toKh(r.wind))    : raw.map(r => r.wind);
+    const getGusts    = () => currentSys === 'metric' ? raw.map(r => toKh(r.gust))    : raw.map(r => r.gust);
+
+    const labels = raw.map(r =>
+      new Date(r.t).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', hour12: true }),
+    );
+
+    const GRID = 'rgba(148,163,184,0.08)';
+    const TT = {
+      backgroundColor: '#282A36',
+      borderColor: '#44475A',
+      borderWidth: 1,
+      titleColor: '#F8F8F2',
+      bodyColor: '#ABB2BF',
+      padding: 8,
+    } as const;
+
+    // Shared dashed "now" marker drawn across every panel.
+    const nowLinePlugin = {
+      id: 'nowLine',
+      afterDraw(chart: Chart) {
+        const now = Date.now();
+        const idx = raw.findIndex((r, i) => {
+          const t = new Date(r.t).getTime();
+          const next = raw[i + 1];
+          return t <= now && (!next || new Date(next.t).getTime() > now);
+        });
+        if (idx < 0) return;
+        const pt = chart.getDatasetMeta(0).data[idx];
+        if (!pt) return;
+        const { ctx, chartArea } = chart;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(248,248,242,0.18)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(pt.x, chartArea.top);
+        ctx.lineTo(pt.x, chartArea.bottom);
+        ctx.stroke();
+        ctx.restore();
+      },
+    };
+
+    // X-axis config: only the bottom panel (RH) prints hour labels.
+    const xHidden = { grid: { color: GRID }, border: { display: false }, ticks: { display: false } };
+    const xLabelled = {
+      grid: { color: GRID },
+      border: { display: false },
+      ticks: {
+        color: '#6272A4',
+        maxRotation: 0,
+        autoSkip: false,
+        callback: (_val: any, index: number) => {
+          if (!raw[index]) return '';
+          return new Date(raw[index].t).getHours() % 6 === 0 ? labels[index] : '';
+        },
+      },
+    };
+
+    let chartTemp: Chart | undefined;
+    let chartWind: Chart | undefined;
+
+    document.addEventListener('ft-meteogram-activate', () => {
+      if (chartTemp) return;
+
+      // ── Graph 1: Temperature + Dewpoint + Apparent ────────────────────────
+      chartTemp = new Chart(document.getElementById('mg-temp') as HTMLCanvasElement, {
+        data: {
+          labels,
+          datasets: [
+            {
+              type: 'line', label: currentSys === 'metric' ? 'Temp (°C)' : 'Temp (°F)',
+              data: getTemps(), fill: true,
+              borderColor: '#FFB86C', backgroundColor: 'rgba(255,184,108,0.15)',
+              borderWidth: 2, pointRadius: 0, tension: 0.4, spanGaps: true, order: 3,
+            },
+            {
+              type: 'line', label: currentSys === 'metric' ? 'Feels Like (°C)' : 'Feels Like (°F)',
+              data: getApparent(), fill: false,
+              borderColor: '#FF5555', borderDash: [2, 2],
+              borderWidth: 1.5, pointRadius: 0, tension: 0.4, spanGaps: true, order: 2,
+            } as any,
+            {
+              type: 'line', label: currentSys === 'metric' ? 'Dewpoint (°C)' : 'Dewpoint (°F)',
+              data: getDews(), fill: false,
+              borderColor: '#50FA7B', borderDash: [5, 3],
+              borderWidth: 1.5, pointRadius: 0, tension: 0.4, spanGaps: true, order: 1,
+            } as any,
+          ],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false,
+          interaction: { mode: 'index', intersect: false },
+          scales: {
+            x: xHidden,
+            y: {
+              position: 'left', grid: { color: GRID }, border: { display: false },
+              ticks: { color: '#FFB86C', maxTicksLimit: 5, callback: (v: any) => `${v}°` },
+            },
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              ...TT,
+              callbacks: {
+                label: ctx => {
+                  const v = ctx.raw as number | null;
+                  if (v === null) return '';
+                  const unit = currentSys === 'metric' ? '°C' : '°F';
+                  return `${(ctx.dataset.label ?? '').split(' (')[0]}: ${Math.round(v)}${unit}`;
+                },
+              },
+            },
+          },
+        },
+        plugins: [nowLinePlugin],
+      });
+
+      // ── Graph 2: Surface Wind (+ gust) ────────────────────────────────────
+      chartWind = new Chart(document.getElementById('mg-wind') as HTMLCanvasElement, {
+        data: {
+          labels,
+          datasets: [
+            {
+              type: 'line', label: 'Wind', data: getWinds(), fill: true,
+              borderColor: '#50FA7B', backgroundColor: 'rgba(80,250,123,0.18)',
+              borderWidth: 1.5, pointRadius: 0, tension: 0.4, spanGaps: true,
+            },
+            {
+              type: 'line', label: 'Gust', data: getGusts(), fill: false,
+              borderColor: 'rgba(80,250,123,0.45)', borderDash: [4, 3],
+              borderWidth: 1, pointRadius: 0, tension: 0.4, spanGaps: true,
+            } as any,
+          ],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false,
+          interaction: { mode: 'index', intersect: false },
+          scales: {
+            x: xHidden,
+            y: {
+              position: 'left', min: 0, grid: { color: GRID }, border: { display: false },
+              ticks: {
+                color: '#50FA7B', maxTicksLimit: 4,
+                callback: (v: any) => currentSys === 'metric' ? `${v}km/h` : `${v}mph`,
+              },
+            },
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              ...TT,
+              callbacks: {
+                label: ctx => {
+                  const v = ctx.raw as number | null;
+                  if (v === null) return '';
+                  const unit = currentSys === 'metric' ? 'km/h' : 'mph';
+                  return `${ctx.dataset.label}: ${Math.round(v)} ${unit}`;
+                },
+              },
+            },
+          },
+        },
+        plugins: [nowLinePlugin],
+      });
+
+      // ── Graph 3: Sky Cover (opacity encodes coverage) ─────────────────────
+      const skyColors = raw.map(r => {
+        const pct = (r.sky ?? 0) / 100;
+        return `rgba(98,114,164,${(0.08 + pct * 0.72).toFixed(2)})`;
+      });
+      const chartSky = new Chart(document.getElementById('mg-sky') as HTMLCanvasElement, {
+        data: {
+          labels,
+          datasets: [{
+            type: 'bar', label: 'Sky Cover',
+            data: raw.map(() => 100), backgroundColor: skyColors,
+            borderWidth: 0, categoryPercentage: 1.0, barPercentage: 1.0,
+          }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false,
+          interaction: { mode: 'index', intersect: false },
+          scales: {
+            x: { grid: { display: false }, border: { display: false }, ticks: { display: false } },
+            y: { min: 0, max: 100, grid: { display: false }, border: { display: false }, ticks: { display: false } },
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              ...TT,
+              callbacks: { label: ctx => `Sky: ${Math.round(raw[ctx.dataIndex]?.sky ?? 0)}%` },
+            },
+          },
+        },
+        plugins: [nowLinePlugin],
+      });
+
+      // ── Graph 4: Precipitation Potential (+ Thunder) ──────────────────────
+      const chartPrecip = new Chart(document.getElementById('mg-precip') as HTMLCanvasElement, {
+        data: {
+          labels,
+          datasets: [
+            {
+              type: 'bar', label: 'Precip %', data: raw.map(r => r.precip),
+              backgroundColor: 'rgba(139,233,253,0.45)', borderColor: 'rgba(139,233,253,0.7)',
+              borderWidth: 1, categoryPercentage: 0.95, order: 2,
+            },
+            {
+              type: 'bar', label: 'Thunder %', data: raw.map(r => r.thunder),
+              backgroundColor: 'rgba(255,184,108,0.5)', borderColor: 'rgba(255,184,108,0.75)',
+              borderWidth: 1, categoryPercentage: 0.95, order: 1,
+            },
+          ],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false,
+          interaction: { mode: 'index', intersect: false },
+          scales: {
+            x: xHidden,
+            y: {
+              min: 0, max: 100, position: 'left', grid: { color: GRID }, border: { display: false },
+              ticks: { color: '#8BE9FD', maxTicksLimit: 3, callback: (v: any) => `${v}%` },
+            },
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              ...TT,
+              callbacks: {
+                label: ctx => {
+                  const v = ctx.raw as number | null;
+                  if (v === null || v === 0) return '';
+                  return `${ctx.dataset.label}: ${Math.round(v)}%`;
+                },
+              },
+            },
+          },
+        },
+        plugins: [nowLinePlugin],
+      });
+
+      // ── Graph 5: Relative Humidity (bottom — carries x-axis labels) ────────
+      const chartRH = new Chart(document.getElementById('mg-rh') as HTMLCanvasElement, {
+        data: {
+          labels,
+          datasets: [{
+            type: 'line', label: 'Humidity', data: raw.map(r => r.rh), fill: true,
+            borderColor: '#BD93F9', backgroundColor: 'rgba(189,147,249,0.15)',
+            borderWidth: 1.5, pointRadius: 0, tension: 0.4, spanGaps: true,
+          }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false,
+          interaction: { mode: 'index', intersect: false },
+          scales: {
+            x: xLabelled,
+            y: {
+              min: 0, max: 100, position: 'left', grid: { color: GRID }, border: { display: false },
+              ticks: { color: '#BD93F9', maxTicksLimit: 3, callback: (v: any) => `${v}%` },
+            },
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              ...TT,
+              callbacks: {
+                label: ctx => {
+                  const v = ctx.raw as number | null;
+                  return v === null ? '' : `RH: ${Math.round(v)}%`;
+                },
+              },
+            },
+          },
+        },
+        plugins: [nowLinePlugin],
+      });
+
+      // ── Cross-chart tooltip sync ──────────────────────────────────────────
+      const allCharts = [chartTemp, chartWind, chartSky, chartPrecip, chartRH];
+      allCharts.forEach(src => {
+        src.canvas.addEventListener('mousemove', e => {
+          const pts = src.getElementsAtEventForMode(e, 'index', { intersect: false }, true);
+          if (!pts.length) return;
+          const idx = pts[0].index;
+          allCharts.forEach(c => {
+            if (c === src) return;
+            const active = c.data.datasets.map((_, di) => ({ datasetIndex: di, index: idx }));
+            c.tooltip!.setActiveElements(active, { x: 0, y: 0 });
+            c.update('active');
+          });
+        });
+        src.canvas.addEventListener('mouseleave', () => {
+          allCharts.forEach(c => {
+            c.tooltip!.setActiveElements([], { x: 0, y: 0 });
+            c.update('active');
+          });
+        });
+      });
+    });
+
+    // ── Unit conversion ─────────────────────────────────────────────────────
+    document.addEventListener('unitschange', e => {
+      currentSys = (e as CustomEvent<{ sys: string }>).detail.sys;
+      if (!chartTemp || !chartWind) return;
+
+      chartTemp.data.datasets[0].data = getTemps();
+      (chartTemp.data.datasets[0] as any).label = currentSys === 'metric' ? 'Temp (°C)' : 'Temp (°F)';
+      chartTemp.data.datasets[1].data = getApparent();
+      (chartTemp.data.datasets[1] as any).label = currentSys === 'metric' ? 'Feels Like (°C)' : 'Feels Like (°F)';
+      chartTemp.data.datasets[2].data = getDews();
+      (chartTemp.data.datasets[2] as any).label = currentSys === 'metric' ? 'Dewpoint (°C)' : 'Dewpoint (°F)';
+      chartTemp.update('none');
+
+      chartWind.data.datasets[0].data = getWinds();
+      chartWind.data.datasets[1].data = getGusts();
+      chartWind.update('none');
+    });
+  }
+</script>

@@ -68,6 +68,7 @@ export function setupSchema(): void {
   for (const ddl of [
     `ALTER TABLE forecasts ADD COLUMN dewpoint REAL`,       // °F
     `ALTER TABLE forecasts ADD COLUMN thunder_prob REAL`,   // %
+    `ALTER TABLE forecasts ADD COLUMN apparent_temp REAL`,  // °F (heat index / wind chill)
   ]) {
     try { db.run(ddl); } catch { /* column already exists */ }
   }

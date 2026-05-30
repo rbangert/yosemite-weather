@@ -118,7 +118,7 @@ function handleForecast(slug: string, hours: number): Response {
 
   const rows = db
     .prepare(
-      `SELECT valid_time, air_temp, dewpoint, wind_speed, wind_gust, wind_direction,
+      `SELECT valid_time, air_temp, apparent_temp, dewpoint, wind_speed, wind_gust, wind_direction,
               precip_prob, thunder_prob, relative_humidity, snowfall_amount, snow_level, sky_cover
        FROM forecasts
        WHERE point_slug = ? AND valid_time >= ? AND valid_time <= ?
