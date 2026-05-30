@@ -89,7 +89,9 @@ function groupIndex(i: number): number {
                 </div>
               </td>
               <td class={`px-4 py-2.5 text-right tabular-nums font-semibold ${tColor}`}>
-                {row.temperature !== null ? `${row.temperature}°F` : '—'}
+                {row.temperature !== null
+                  ? <span data-unit="temp" data-val={row.temperature}>{row.temperature}°F</span>
+                  : '—'}
               </td>
               <td class="hidden whitespace-nowrap px-4 py-2.5 text-slate-400 sm:table-cell">
                 {row.wind_speed && row.wind_direction
@@ -97,9 +99,11 @@ function groupIndex(i: number): number {
                       {WIND_DIR_ICON[row.wind_direction] && (
                         <i class={`wi ${WIND_DIR_ICON[row.wind_direction]} text-2xl leading-none text-white`} aria-hidden="true" />
                       )}
-                      {row.wind_direction} {row.wind_speed}
+                      {row.wind_direction} <span data-unit-text="wind-text" data-val={row.wind_speed}>{row.wind_speed}</span>
                     </span>
-                  : (row.wind_speed ?? '—')}
+                  : (row.wind_speed
+                      ? <span data-unit-text="wind-text" data-val={row.wind_speed}>{row.wind_speed}</span>
+                      : '—')}
               </td>
               <td class={`px-4 py-2.5 text-right tabular-nums ${precip >= 20 ? 'text-blue-400' : 'text-slate-600'}`}>
                 {precip > 0 ? `${Math.round(precip)}%` : '—'}

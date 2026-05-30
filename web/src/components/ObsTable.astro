@@ -87,7 +87,7 @@ function fmtTime(iso: string): string {
 interface Column {
   key: string;
   header: string;
-  cellValue: (obs: ObservationRow) => string;
+  cellHtml: (obs: ObservationRow) => string;
   cellClass: (obs: ObservationRow) => string;
   hideMobile?: boolean;
 }
@@ -96,36 +96,40 @@ const allCols: Record<string, Column> = {
   temp: {
     key: 'temp',
     header: 'Temp',
-    cellValue: (obs) => obs.air_temp !== null ? `${Math.round(obs.air_temp)}°F` : '—',
+    cellHtml: (obs) => obs.air_temp !== null
+      ? `<span data-unit="temp" data-val="${obs.air_temp}">${Math.round(obs.air_temp)}°F</span>`
+      : '—',
     cellClass: (obs) => `font-medium tabular-nums ${tempColor(obs.air_temp)}`,
   },
   humidity: {
     key: 'humidity',
     header: 'Humidity',
-    cellValue: (obs) => obs.relative_humidity !== null ? `${Math.round(obs.relative_humidity)}%` : '—',
+    cellHtml: (obs) => obs.relative_humidity !== null ? `${Math.round(obs.relative_humidity)}%` : '—',
     cellClass: () => 'tabular-nums text-slate-300',
     hideMobile: true,
   },
   wind: {
     key: 'wind',
     header: 'Wind',
-    cellValue: (obs) => obs.wind_speed !== null
-      ? `${Math.round(obs.wind_speed)} mph ${windDir(obs.wind_direction)}`
+    cellHtml: (obs) => obs.wind_speed !== null
+      ? `<span data-unit="speed" data-val="${obs.wind_speed}">${Math.round(obs.wind_speed)} mph</span> ${windDir(obs.wind_direction)}`
       : '—',
     cellClass: () => 'tabular-nums text-slate-300',
   },
   gust: {
     key: 'gust',
     header: 'Gust',
-    cellValue: (obs) => obs.wind_gust !== null ? `${Math.round(obs.wind_gust)} mph` : '—',
+    cellHtml: (obs) => obs.wind_gust !== null
+      ? `<span data-unit="speed" data-val="${obs.wind_gust}">${Math.round(obs.wind_gust)} mph</span>`
+      : '—',
     cellClass: (obs) => `tabular-nums ${obs.wind_gust !== null && obs.wind_gust >= 35 ? 'text-orange-300' : 'text-slate-300'}`,
     hideMobile: true,
   },
   precip: {
     key: 'precip',
     header: 'Precip / 1h',
-    cellValue: (obs) => obs.precip_last_hour !== null && obs.precip_last_hour > 0
-      ? `${obs.precip_last_hour.toFixed(2)}"`
+    cellHtml: (obs) => obs.precip_last_hour !== null && obs.precip_last_hour > 0
+      ? `<span data-unit="precip" data-val="${obs.precip_last_hour}">${obs.precip_last_hour.toFixed(2)}"</span>`
       : '—',
     cellClass: (obs) => `tabular-nums ${obs.precip_last_hour !== null && obs.precip_last_hour > 0 ? 'text-sky-300' : 'text-slate-500'}`,
     hideMobile: true,
@@ -176,9 +180,8 @@ const columns = (colOrders[areaSlug] ?? colOrders['valley-west']).map(k => allCo
                 </div>
               </td>
               {columns.map(col => (
-                <td class={`px-4 py-4 text-right align-top${col.hideMobile ? ' hidden sm:table-cell' : ''} ${col.cellClass(station.obs)}`}>
-                  {col.cellValue(station.obs)}
-                </td>
+                <td class={`px-4 py-4 text-right align-top${col.hideMobile ? ' hidden sm:table-cell' : ''} ${col.cellClass(station.obs)}`}
+                    set:html={col.cellHtml(station.obs)} />
               ))}
               <td class="hidden px-6 py-4 text-right align-top sm:table-cell">
                 <div class="text-xs text-slate-400">{relAge(station.obs.observed_at)}</div>

@@ -52,6 +52,18 @@ const areaLinks = [
             </a>
           ))}
         </div>
+
+        <div class="ml-auto">
+          <button
+            id="unit-toggle"
+            class="flex items-center gap-0.5 rounded-md border border-slate-700 px-2.5 py-1 text-xs font-medium transition-colors hover:border-slate-500"
+            aria-label="Toggle between imperial and metric units"
+          >
+            <span id="unit-f" class="text-amber-400">°F</span>
+            <span class="text-slate-600">/</span>
+            <span id="unit-c" class="text-slate-500">°C</span>
+          </button>
+        </div>
       </div>
     </nav>
 
@@ -74,3 +86,48 @@ const areaLinks = [
     </footer>
   </body>
 </html>
+
+<script>
+  const CONVS: Record<string, (v: number, s: string) => string> = {
+    temp:         (v, s) => s === 'metric' ? `${Math.round((v - 32) * 5 / 9)}°C`             : `${Math.round(v)}°F`,
+    speed:        (v, s) => s === 'metric' ? `${Math.round(v * 1.60934)} km/h`               : `${Math.round(v)} mph`,
+    precip:       (v, s) => s === 'metric' ? `${(v * 25.4).toFixed(1)} mm`                  : `${v.toFixed(2)}"`,
+    depth:        (v, s) => s === 'metric' ? `${(v * 2.54).toFixed(1)} cm`                  : `${v.toFixed(1)}"`,
+    'snow-level': (v, s) => s === 'metric' ? `${Math.round(v * 0.3048).toLocaleString()} m` : `${Math.round(v).toLocaleString()} ft`,
+    elevation:    (v, s) => s === 'metric' ? `${Math.round(v * 0.3048).toLocaleString()} m` : `${v.toLocaleString()} ft`,
+  };
+
+  function convertWindText(v: string, sys: string): string {
+    if (sys === 'imperial') return v;
+    const kph = (mph: string) => Math.round(+mph * 1.60934);
+    return v.replace(
+      /(\d+)\s+to\s+(\d+)\s+mph|(\d+)\s+mph/gi,
+      (_, a, b, c) => a ? `${kph(a)} to ${kph(b)} km/h` : `${kph(c)} km/h`,
+    );
+  }
+
+  function applyUnits(sys: string): void {
+    for (const el of document.querySelectorAll<HTMLElement>('[data-unit]')) {
+      const fn = CONVS[el.dataset.unit!];
+      const val = parseFloat(el.dataset.val!);
+      if (fn && !isNaN(val)) el.textContent = fn(val, sys);
+    }
+    for (const el of document.querySelectorAll<HTMLElement>('[data-unit-text]')) {
+      if (el.dataset.unitText === 'wind-text') el.textContent = convertWindText(el.dataset.val!, sys);
+    }
+    const f = document.getElementById('unit-f');
+    const c = document.getElementById('unit-c');
+    if (f) f.className = sys === 'imperial' ? 'text-amber-400' : 'text-slate-500';
+    if (c) c.className = sys === 'metric'   ? 'text-amber-400' : 'text-slate-500';
+    document.dispatchEvent(new CustomEvent('unitschange', { detail: { sys } }));
+  }
+
+  let sys = localStorage.getItem('units') ?? 'imperial';
+  applyUnits(sys);
+
+  document.getElementById('unit-toggle')?.addEventListener('click', () => {
+    sys = sys === 'imperial' ? 'metric' : 'imperial';
+    localStorage.setItem('units', sys);
+    applyUnits(sys);
+  });
+</script>

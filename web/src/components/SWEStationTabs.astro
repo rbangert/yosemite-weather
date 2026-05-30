@@ -48,7 +48,7 @@ const hasData = responses.some((r) => Object.keys(r.waterYears).length > 0);
           ]}
         >
           <span class="block text-sm font-medium">{s.name}</span>
-          <span class="block text-xs opacity-60">{s.elevation_ft.toLocaleString()} ft</span>
+          <span class="block text-xs opacity-60"><span data-unit="elevation" data-val={s.elevation_ft}>{s.elevation_ft.toLocaleString()} ft</span></span>
           {/* Active indicator bar */}
           <span
             class:list={[

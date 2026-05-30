@@ -438,6 +438,7 @@ moon data (rise/set times, phase, illumination) is computed server-side via
 | `/` | `src/pages/index.astro` | Valley & West area dashboard |
 | `/areas/:slug` | `src/pages/areas/[area].astro` | South or High Country area dashboard |
 | `/:slug` | `src/pages/[slug].astro` | Location detail — current conditions, 7-day periods, 72h chart |
+| `/snowpack` | `src/pages/snowpack.astro` | NRCS SNOTEL station SWE — multi-year water-year comparison charts (CDEC data) |
 | `/data` | `src/pages/data.astro` | Data explorer — Chart.js panels for all DB variables, coverage grid |
 
 Each area dashboard shows: a summary card (representative-point conditions), a
@@ -494,7 +495,10 @@ to load data. Other scripts: `bun run build` (production build), `bun run check`
         │   ├── ObsTable.astro       # Current conditions table (deduplicated by station)
         │   ├── PeriodForecast.astro # 7-day day/night period table with weather icons
         │   ├── SummaryCard.astro    # Area summary (conditions + notable weather)
-        │   └── SunMoonCard.astro    # Sunrise/sunset + moon phase card
+        │   ├── SunMoonCard.astro    # Sunrise/sunset + moon phase card
+        │   ├── SWECard.astro        # Single-station SWE chart (embeddable, compact mode)
+        │   ├── SWEChart.astro       # Chart.js multi-year water-year SWE line chart
+        │   └── SWEStationTabs.astro # Tabbed SWE view across all SNOTEL stations
         ├── layouts/
         │   └── Layout.astro         # Page shell + sticky nav + alerts banner
         ├── lib/
@@ -506,6 +510,7 @@ to load data. Other scripts: `bun run build` (production build), `bun run check`
         │   ├── index.astro          # Valley & West area dashboard
         │   ├── [slug].astro         # Location detail page
         │   ├── areas/[area].astro   # Area dashboards (South, High Country)
+        │   ├── snowpack.astro       # Yosemite snowpack — multi-year SWE charts
         │   └── data.astro           # Data explorer / diagnostics
         └── styles/
             └── global.css           # @import "tailwindcss" + weather-icons
@@ -553,7 +558,7 @@ adapted for Yosemite. Milestones are ordered roughly by priority; checked items 
 - [ ] Timeframe tabs on the detail page (24h / 48h / 72h) _(ccweather: tabbed forecast nav)_
 - [ ] Additional chart series — wind & gusts, humidity, sky cover, snow level (toggleable)
 - [ ] Wind direction compass / barbs
-- [ ] Unit toggle (°F/°C, mph/kph, in/cm)
+- [x] Unit toggle (°F/°C, mph/km/h, in/mm) — client-side toggle in nav, persisted in localStorage
 - [ ] WBGT (wet bulb globe temperature / heat stress) indicator on detail page — available from NWS raw gridpoint
 
 #### Milestone 5 — Snow & avalanche
@@ -561,7 +566,7 @@ adapted for Yosemite. Milestones are ordered roughly by priority; checked items 
 - [ ] Snowfall accumulation display + snow-level line on the chart _(ccweather: new-snow estimates)_
 - [ ] Snow depth with 12 / 24 / 48-hour change _(ccweather: snow depth + deltas)_ — needs SNOTEL data
 - [ ] 30-day snow-depth trend chart _(ccweather: 30-day trends)_
-- [ ] Snow Water Equivalent multi-season comparison _(ccweather: SWE graphs)_ — needs SNOTEL data
+- [x] Snow Water Equivalent multi-season comparison _(ccweather: SWE graphs)_ — CDEC SNOTEL data via `/snowpack`
 - [ ] Avalanche forecast links (e.g. Eastern Sierra Avalanche Center) _(ccweather: avalanche section)_
 
 #### Milestone 6 — Maps & imagery

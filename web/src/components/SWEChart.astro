@@ -42,7 +42,7 @@ const canvasId = `swe-chart-${station.station_id}`;
           Snow Water Equivalent
         </h2>
         <p class="mt-0.5 text-sm font-medium text-slate-200">{station.name}</p>
-        <p class="text-xs text-slate-500">{station.elevation_ft.toLocaleString()} ft elevation</p>
+        <p class="text-xs text-slate-500"><span data-unit="elevation" data-val={station.elevation_ft}>{station.elevation_ft.toLocaleString()} ft</span> elevation</p>
       </div>
       <div class="shrink-0 text-right text-xs text-slate-500">
         Water year<br />(Oct – Sep)
@@ -116,20 +116,27 @@ const canvasId = `swe-chart-${station.station_id}`;
     const years = Object.keys(chartData).map(Number).sort((a, b) => a - b);
     if (years.length === 0) return;
 
+    // Build raw inch arrays (negatives and values > 90" are CDEC sensor noise).
+    const rawByYear = new Map<number, (number | null)[]>();
+    for (const wy of years) {
+      const arr: (number | null)[] = new Array(367).fill(null);
+      for (const { d, v } of chartData[wy] ?? []) {
+        if (d >= 1 && d <= 366) arr[d] = (v != null && v >= 0 && v <= 90) ? v : null;
+      }
+      rawByYear.set(wy, arr);
+    }
+
+    let sys = localStorage.getItem('units') ?? 'imperial';
+    const toDisplay = (v: number | null) =>
+      v != null ? (sys === 'metric' ? +(v * 2.54).toFixed(2) : v) : null;
+
     const labels = buildLabels();
 
     const datasets = years.map((wy) => {
-      const pts = chartData[wy] ?? [];
-      // Build sparse array indexed by day (1..366).
-      // Negatives and values > 90" are CDEC sensor noise — treat as null.
-      const arr: (number | null)[] = new Array(367).fill(null);
-      for (const { d, v } of pts) {
-        if (d >= 1 && d <= 366) arr[d] = (v != null && v >= 0 && v <= 90) ? v : null;
-      }
       const { color, width } = wyColor(wy, currentWy, years.length);
       return {
         label: `WY${wy}`,
-        data: arr,
+        data: rawByYear.get(wy)!.map(toDisplay),
         borderColor: color,
         backgroundColor: 'transparent',
         borderWidth: width,
@@ -138,14 +145,13 @@ const canvasId = `swe-chart-${station.station_id}`;
         pointStyle: 'line',
         tension: 0.2,
         spanGaps: true,
-        order: currentWy - wy, // higher order = rendered behind
+        order: currentWy - wy,
       };
     });
 
-    // Current WY on top.
     datasets.sort((a, b) => b.order - a.order);
 
-    new Chart(canvas, {
+    const chart = new Chart(canvas, {
       type: 'line',
       data: { labels, datasets },
       options: {
@@ -166,7 +172,7 @@ const canvasId = `swe-chart-${station.station_id}`;
           y: {
             min: 0,
             grid: { color: 'rgba(148, 163, 184, 0.07)' },
-            ticks: { color: '#94a3b8', callback: (v) => `${v}"` },
+            ticks: { color: '#94a3b8', callback: (v) => sys === 'metric' ? `${v} cm` : `${v}"` },
             title: { display: false },
           },
         },
@@ -189,7 +195,6 @@ const canvasId = `swe-chart-${station.station_id}`;
               },
               title: (items) => {
                 const idx = items[0]?.dataIndex ?? 0;
-                // Find a date string from any WY's point at this day index.
                 for (const pts of Object.values(chartData as Record<string, DayVal[]>)) {
                   const p = pts.find((x) => x.d === idx);
                   if (p?.dt) {
@@ -202,12 +207,23 @@ const canvasId = `swe-chart-${station.station_id}`;
               label: (item) => {
                 const v = item.raw as number | null;
                 if (v == null) return null as unknown as string;
-                return ` ${item.dataset.label}: ${v.toFixed(1)}"`;
+                return sys === 'metric'
+                  ? ` ${item.dataset.label}: ${v.toFixed(1)} cm`
+                  : ` ${item.dataset.label}: ${v.toFixed(1)}"`;
               },
             },
           },
         },
       },
+    });
+
+    document.addEventListener('unitschange', (e) => {
+      sys = (e as CustomEvent<{ sys: string }>).detail.sys;
+      for (const wy of years) {
+        const ds = chart.data.datasets.find(d => d.label === `WY${wy}`);
+        if (ds) (ds as any).data = rawByYear.get(wy)!.map(toDisplay);
+      }
+      chart.update('none');
     });
 
     // Build legend below chart using Dracula foreground/comment colors.

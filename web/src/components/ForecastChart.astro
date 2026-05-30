@@ -22,7 +22,7 @@ const points = forecast.map(row => ({
     </h2>
     <div class="flex gap-4 text-xs">
       <span class="flex items-center gap-1.5 text-slate-400">
-        <span class="inline-block h-0.5 w-3 bg-amber-400"></span>Temp °F
+        <span class="inline-block h-0.5 w-3 bg-amber-400"></span>Temp <span id="chart-temp-unit">°F</span>
       </span>
       <span class="flex items-center gap-1.5 text-slate-400">
         <span class="inline-block h-2 w-3 bg-sky-400/50"></span>Precip %
@@ -67,19 +67,30 @@ const points = forecast.map(row => ({
 
   if (canvas && raw) {
     const rows: Point[] = JSON.parse(raw);
+    const rawTemps = rows.map(r => r.temp);
+
+    const toC = (f: number | null) => f !== null ? Math.round((f - 32) * 5 / 9) : null;
+
+    const initSys = localStorage.getItem('units') ?? 'imperial';
+    const initTemps = initSys === 'metric' ? rawTemps.map(toC) : rawTemps;
+    const initLabel = initSys === 'metric' ? 'Temp (°C)' : 'Temp (°F)';
+
+    // Sync the legend chip with the stored pref
+    const unitLabel = document.getElementById('chart-temp-unit');
+    if (unitLabel) unitLabel.textContent = initSys === 'metric' ? '°C' : '°F';
 
     const labels = rows.map(r =>
       new Date(r.t).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', hour12: true }),
     );
 
-    new Chart(canvas, {
+    const chart = new Chart(canvas, {
       data: {
         labels,
         datasets: [
           {
             type: 'line',
-            label: 'Temp (°F)',
-            data: rows.map(r => r.temp),
+            label: initLabel,
+            data: initTemps,
             yAxisID: 'yTemp',
             borderColor: '#fbbf24',
             backgroundColor: 'rgba(251, 191, 36, 0.12)',
@@ -135,6 +146,15 @@ const points = forecast.map(row => ({
           },
         },
       },
+    });
+
+    document.addEventListener('unitschange', (e) => {
+      const sys = (e as CustomEvent<{ sys: string }>).detail.sys;
+      chart.data.datasets[0].data = sys === 'metric' ? rawTemps.map(toC) : rawTemps;
+      (chart.data.datasets[0] as any).label = sys === 'metric' ? 'Temp (°C)' : 'Temp (°F)';
+      chart.update('none');
+      const lbl = document.getElementById('chart-temp-unit');
+      if (lbl) lbl.textContent = sys === 'metric' ? '°C' : '°F';
     });
   }
 </script>

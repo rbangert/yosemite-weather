@@ -120,7 +120,9 @@ const current = forecast[0] ?? null;
         <div>
           <div class="mb-4 flex flex-wrap items-end gap-3">
             <div class={`text-5xl font-light tabular-nums ${tempColor(observation.air_temp)}`}>
-              {observation.air_temp !== null ? `${Math.round(observation.air_temp)}°F` : '—°F'}
+              {observation.air_temp !== null
+                ? <span data-unit="temp" data-val={observation.air_temp}>{Math.round(observation.air_temp)}°F</span>
+                : '—°F'}
             </div>
             <div class="mb-1 text-sm text-slate-500">
               observed {fmtDateTime(observation.observed_at)}
@@ -129,9 +131,13 @@ const current = forecast[0] ?? null;
           <div class="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
             <div>
               <div class="mb-0.5 text-xs uppercase tracking-wide text-slate-500">Wind</div>
-              <div class="text-slate-200">{fmt(observation.wind_speed)}&thinsp;mph {windDir(observation.wind_direction)}</div>
+              <div class="text-slate-200">
+                {observation.wind_speed !== null
+                  ? <><span data-unit="speed" data-val={observation.wind_speed}>{Math.round(observation.wind_speed)}&thinsp;mph</span>{' '}{windDir(observation.wind_direction)}</>
+                  : '—'}
+              </div>
               {observation.wind_gust !== null && (
-                <div class="text-xs text-slate-400">Gust {Math.round(observation.wind_gust)}&thinsp;mph</div>
+                <div class="text-xs text-slate-400">Gust <span data-unit="speed" data-val={observation.wind_gust}>{Math.round(observation.wind_gust)}&thinsp;mph</span></div>
               )}
             </div>
             <div>
@@ -140,7 +146,11 @@ const current = forecast[0] ?? null;
             </div>
             <div>
               <div class="mb-0.5 text-xs uppercase tracking-wide text-slate-500">Precip (1h)</div>
-              <div class="text-slate-200">{fmt(observation.precip_last_hour, 2)}"</div>
+              <div class="text-slate-200">
+                {observation.precip_last_hour !== null
+                  ? <span data-unit="precip" data-val={observation.precip_last_hour}>{observation.precip_last_hour.toFixed(2)}"</span>
+                  : '—'}
+              </div>
             </div>
             <div>
               <div class="mb-0.5 text-xs uppercase tracking-wide text-slate-500">Station</div>
@@ -152,7 +162,9 @@ const current = forecast[0] ?? null;
         <div>
           <div class="mb-4 flex flex-wrap items-end gap-3">
             <div class={`text-5xl font-light tabular-nums ${tempColor(current.air_temp)}`}>
-              {current.air_temp !== null ? `${Math.round(current.air_temp)}°F` : '—°F'}
+              {current.air_temp !== null
+                ? <span data-unit="temp" data-val={current.air_temp}>{Math.round(current.air_temp)}°F</span>
+                : '—°F'}
             </div>
             <div class="mb-1 text-sm text-slate-500">
               forecast for {fmtDateTime(current.valid_time)}
@@ -161,9 +173,13 @@ const current = forecast[0] ?? null;
           <div class="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
             <div>
               <div class="mb-0.5 text-xs uppercase tracking-wide text-slate-500">Wind</div>
-              <div class="text-slate-200">{fmt(current.wind_speed)}&thinsp;mph {windDir(current.wind_direction)}</div>
+              <div class="text-slate-200">
+                {current.wind_speed !== null
+                  ? <><span data-unit="speed" data-val={current.wind_speed}>{Math.round(current.wind_speed)}&thinsp;mph</span>{' '}{windDir(current.wind_direction)}</>
+                  : '—'}
+              </div>
               {current.wind_gust !== null && (
-                <div class="text-xs text-slate-400">Gust {Math.round(current.wind_gust)}&thinsp;mph</div>
+                <div class="text-xs text-slate-400">Gust <span data-unit="speed" data-val={current.wind_gust}>{Math.round(current.wind_gust)}&thinsp;mph</span></div>
               )}
             </div>
             <div>
@@ -221,10 +237,14 @@ const current = forecast[0] ?? null;
                 <tr class={`border-b border-slate-800/40 ${i % 2 !== 0 ? 'bg-slate-800/20' : ''}`}>
                   <td class="whitespace-nowrap px-6 py-2.5 text-slate-400">{fmtHour(row.valid_time)}</td>
                   <td class={`px-4 py-2.5 text-right tabular-nums font-medium ${tempColor(row.air_temp)}`}>
-                    {row.air_temp !== null ? `${Math.round(row.air_temp)}°` : '—'}
+                    {row.air_temp !== null
+                      ? <span data-unit="temp" data-val={row.air_temp}>{Math.round(row.air_temp)}°F</span>
+                      : '—'}
                   </td>
                   <td class="px-4 py-2.5 text-right tabular-nums text-slate-300">
-                    {fmt(row.wind_speed)}&thinsp;<span class="text-xs text-slate-500">{windDir(row.wind_direction)}</span>
+                    {row.wind_speed !== null
+                      ? <><span data-unit="speed" data-val={row.wind_speed}>{Math.round(row.wind_speed)}&thinsp;mph</span>{' '}<span class="text-xs text-slate-500">{windDir(row.wind_direction)}</span></>
+                      : '—'}
                   </td>
                   <td class="px-4 py-2.5 text-right tabular-nums text-slate-300">{fmt(row.precip_prob)}</td>
                   <td class="px-4 py-2.5 text-right tabular-nums text-slate-300">{fmt(row.sky_cover)}</td>
@@ -233,7 +253,7 @@ const current = forecast[0] ?? null;
                   </td>
                   <td class="hidden px-6 py-2.5 text-right tabular-nums md:table-cell">
                     {row.snowfall_amount !== null && row.snowfall_amount > 0
-                      ? <span class="text-indigo-400">{row.snowfall_amount.toFixed(1)}</span>
+                      ? <span class="text-indigo-400" data-unit="depth" data-val={row.snowfall_amount}>{row.snowfall_amount.toFixed(1)}"</span>
                       : <span class="text-slate-700">—</span>
                     }
                   </td>
