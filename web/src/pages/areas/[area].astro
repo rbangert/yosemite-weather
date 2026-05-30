@@ -68,7 +68,7 @@ if (!areaData && !error) {
       <SummaryCard pointName={rep.name} observation={repObservation} forecast={repForecast} />
     )}
 
-    <ForecastTabs periods={repPeriods} forecast={repForecast} area={area} />
+    <ForecastTabs periods={repPeriods} forecast={repForecast} area={area} lat={rep?.lat} lon={rep?.lon} />
 
     {rep && <SunMoonCard lat={rep.lat} lon={rep.lon} />}
 

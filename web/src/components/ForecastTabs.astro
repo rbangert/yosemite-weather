@@ -8,9 +8,11 @@ interface Props {
   periods: PeriodForecastRow[];
   forecast: ForecastRow[];
   area: string;
+  lat?: number;
+  lon?: number;
 }
 
-const { periods, forecast, area } = Astro.props;
+const { periods, forecast, area, lat, lon } = Astro.props;
 ---
 
 <div class="mb-6 overflow-hidden rounded-xl border border-slate-800 bg-slate-900" id="forecast-tabs-card">
@@ -83,7 +85,7 @@ const { periods, forecast, area } = Astro.props;
     class="ft-panel hidden p-4 pt-2"
   >
     {forecast.length > 0
-      ? <Meteogram forecast={forecast} area={area} />
+      ? <Meteogram forecast={forecast} area={area} lat={lat} lon={lon} />
       : <p class="py-6 text-sm text-slate-500">No hourly data available.</p>
     }
   </div>

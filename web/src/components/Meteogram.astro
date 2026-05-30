@@ -1,12 +1,15 @@
 ---
 import type { ForecastRow } from '../lib/api';
+import { getSunData } from '../lib/sunMoon';
 
 interface Props {
   forecast: ForecastRow[];
   area: string;
+  lat?: number;
+  lon?: number;
 }
 
-const { forecast, area } = Astro.props;
+const { forecast, area, lat, lon } = Astro.props;
 if (!forecast.length) return;
 
 // Compact payload mirrored client-side; one entry per forecast hour.
@@ -24,6 +27,26 @@ const payload = forecast.map(row => ({
   rh: row.relative_humidity,
 }));
 
+// Day/night shading: precompute contiguous night runs as [startIdx, endIdx]
+// (inclusive) over the forecast hours, using sunrise/sunset for each hour's
+// local day. Drawn as subtle bands behind every panel — the signature feature
+// of the NWS meteogram. Skipped when the point's coordinates aren't supplied.
+function computeNightRuns(): [number, number][] {
+  if (lat == null || lon == null) return [];
+  const runs: [number, number][] = [];
+  let start = -1;
+  forecast.forEach((row, i) => {
+    const t = new Date(row.valid_time);
+    const sun = getSunData(t, lat, lon);
+    const isNight = t < sun.sunrise || t >= sun.sunset;
+    if (isNight && start === -1) start = i;
+    if (!isNight && start !== -1) { runs.push([start, i - 1]); start = -1; }
+  });
+  if (start !== -1) runs.push([start, forecast.length - 1]);
+  return runs;
+}
+const nightRuns = computeNightRuns();
+
 // Wind direction arrow: "↑" rotated to point the way the wind blows TO.
 // NWS dir is the bearing the wind comes FROM, so add 180° for flow direction.
 function arrowStyle(deg: number | null): string {
@@ -32,7 +55,7 @@ function arrowStyle(deg: number | null): string {
 }
 ---
 
-<div id="meteogram" data-forecast={JSON.stringify(payload)} data-area={area}>
+<div id="meteogram" data-forecast={JSON.stringify(payload)} data-area={area} data-nights={JSON.stringify(nightRuns)}>
   <!-- Legend -->
   <div class="flex flex-wrap gap-x-4 gap-y-0.5 px-1 pb-2 pt-1 text-[11px] text-slate-500">
     <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-4 bg-[#FFB86C]"></span>Temp</span>
@@ -43,6 +66,7 @@ function arrowStyle(deg: number | null): string {
     <span class="flex items-center gap-1.5"><span class="inline-block h-2 w-3 rounded-sm" style="background:rgba(139,233,253,0.5)"></span>Precip%</span>
     <span class="flex items-center gap-1.5"><span class="inline-block h-2 w-3 rounded-sm" style="background:rgba(255,184,108,0.55)"></span>Thunder%</span>
     <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-4 bg-[#BD93F9]"></span>Humidity</span>
+    <span class="flex items-center gap-1.5"><span class="inline-block h-2 w-3 rounded-sm" style="background:rgba(20,21,33,0.85)"></span>Night</span>
   </div>
 
   <div class="overflow-x-auto">
@@ -112,6 +136,7 @@ function arrowStyle(deg: number | null): string {
   const wrapper = document.getElementById('meteogram') as HTMLDivElement | null;
   if (wrapper) {
     const raw: Row[] = JSON.parse(wrapper.dataset.forecast!);
+    const nightRuns: [number, number][] = JSON.parse(wrapper.dataset.nights ?? '[]');
 
     const toC  = (f: number | null): number | null => f !== null ? Math.round((f - 32) * 5 / 9) : null;
     const toKh = (m: number | null): number | null => m !== null ? Math.round(m * 1.60934) : null;
@@ -160,6 +185,58 @@ function arrowStyle(deg: number | null): string {
         ctx.moveTo(pt.x, chartArea.top);
         ctx.lineTo(pt.x, chartArea.bottom);
         ctx.stroke();
+        ctx.restore();
+      },
+    };
+
+    // Day/night shading: subtle dark bands over nighttime hours, drawn behind
+    // the data on every panel. Shared so all five graphs line up visually.
+    const halfStep = (x: any) => {
+      const a = x.getPixelForValue(0);
+      const b = x.getPixelForValue(1);
+      return Number.isFinite(a) && Number.isFinite(b) ? (b - a) / 2 : 0;
+    };
+    const nightShadePlugin = {
+      id: 'nightShade',
+      beforeDatasetsDraw(chart: Chart) {
+        if (!nightRuns.length) return;
+        const { ctx, chartArea } = chart;
+        const x = chart.scales.x;
+        const hs = halfStep(x);
+        ctx.save();
+        ctx.fillStyle = 'rgba(20,21,33,0.55)';
+        for (const [a, b] of nightRuns) {
+          const left = Math.max(chartArea.left, x.getPixelForValue(a) - hs);
+          const right = Math.min(chartArea.right, x.getPixelForValue(b) + hs);
+          if (right > left) ctx.fillRect(left, chartArea.top, right - left, chartArea.bottom - chartArea.top);
+        }
+        ctx.restore();
+      },
+    };
+
+    // Freezing reference line (temperature panel only): a faint cyan dashed line
+    // at 32°F / 0°C — meaningful in the high country. Recomputes on unit change.
+    const freezingPlugin = {
+      id: 'freezing',
+      afterDatasetsDraw(chart: Chart) {
+        const y = chart.scales.y;
+        const fv = currentSys === 'metric' ? 0 : 32;
+        if (fv < (y.min as number) || fv > (y.max as number)) return;
+        const py = y.getPixelForValue(fv);
+        const { ctx, chartArea } = chart;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(139,233,253,0.30)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath();
+        ctx.moveTo(chartArea.left, py);
+        ctx.lineTo(chartArea.right, py);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(139,233,253,0.55)';
+        ctx.font = '9px sans-serif';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(currentSys === 'metric' ? '0°' : '32°', chartArea.left + 3, py - 1);
         ctx.restore();
       },
     };
@@ -217,7 +294,7 @@ function arrowStyle(deg: number | null): string {
           scales: {
             x: xHidden,
             y: {
-              position: 'left', grid: { color: GRID }, border: { display: false },
+              position: 'left', grace: '8%', grid: { color: GRID }, border: { display: false },
               ticks: { color: '#FFB86C', maxTicksLimit: 5, callback: (v: any) => `${v}°` },
             },
           },
@@ -236,7 +313,7 @@ function arrowStyle(deg: number | null): string {
             },
           },
         },
-        plugins: [nowLinePlugin],
+        plugins: [nightShadePlugin, freezingPlugin, nowLinePlugin],
       });
 
       // ── Graph 2: Surface Wind (+ gust) ────────────────────────────────────
@@ -284,7 +361,7 @@ function arrowStyle(deg: number | null): string {
             },
           },
         },
-        plugins: [nowLinePlugin],
+        plugins: [nightShadePlugin, nowLinePlugin],
       });
 
       // ── Graph 3: Sky Cover (opacity encodes coverage) ─────────────────────
@@ -316,7 +393,7 @@ function arrowStyle(deg: number | null): string {
             },
           },
         },
-        plugins: [nowLinePlugin],
+        plugins: [nightShadePlugin, nowLinePlugin],
       });
 
       // ── Graph 4: Precipitation Potential (+ Thunder) ──────────────────────
@@ -360,7 +437,7 @@ function arrowStyle(deg: number | null): string {
             },
           },
         },
-        plugins: [nowLinePlugin],
+        plugins: [nightShadePlugin, nowLinePlugin],
       });
 
       // ── Graph 5: Relative Humidity (bottom — carries x-axis labels) ────────
@@ -396,7 +473,7 @@ function arrowStyle(deg: number | null): string {
             },
           },
         },
-        plugins: [nowLinePlugin],
+        plugins: [nightShadePlugin, nowLinePlugin],
       });
 
       // ── Cross-chart tooltip sync ──────────────────────────────────────────
