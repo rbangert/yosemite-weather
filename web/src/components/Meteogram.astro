@@ -102,7 +102,7 @@ function cardinal(deg: number | null): string {
 
       <!-- Graph 3: Sky Cover -->
       <div class="mt-2 px-1 text-[10px] uppercase tracking-wide text-slate-500">Sky Cover</div>
-      <div class="relative" style="height:50px"><canvas id="mg-sky"></canvas></div>
+      <div class="relative" style="height:64px"><canvas id="mg-sky"></canvas></div>
 
       <!-- Graph 4: Precipitation Potential (+ Thunder) -->
       <div class="mt-2 px-1 text-[10px] uppercase tracking-wide text-slate-500">Precipitation Potential</div>
@@ -381,32 +381,36 @@ function cardinal(deg: number | null): string {
         plugins: [nightShadePlugin, nowLinePlugin],
       });
 
-      // ── Graph 3: Sky Cover (opacity encodes coverage) ─────────────────────
-      const skyColors = raw.map(r => {
-        const pct = (r.sky ?? 0) / 100;
-        return `rgba(98,114,164,${(0.08 + pct * 0.72).toFixed(2)})`;
-      });
+      // ── Graph 3: Sky Cover (filled % area) ────────────────────────────────
       const chartSky = new Chart(document.getElementById('mg-sky') as HTMLCanvasElement, {
         data: {
           labels,
           datasets: [{
-            type: 'bar', label: 'Sky Cover',
-            data: raw.map(() => 100), backgroundColor: skyColors,
-            borderWidth: 0, categoryPercentage: 1.0, barPercentage: 1.0,
+            type: 'line', label: 'Sky Cover', data: raw.map(r => r.sky), fill: true,
+            borderColor: '#6272A4', backgroundColor: 'rgba(98,114,164,0.35)',
+            borderWidth: 1.5, pointRadius: 0, tension: 0.4, spanGaps: true,
           }],
         },
         options: {
           responsive: true, maintainAspectRatio: false, animation: false,
           interaction: { mode: 'index', intersect: false },
           scales: {
-            x: { grid: { display: false }, border: { display: false }, ticks: { display: false } },
-            y: { min: 0, max: 100, grid: { display: false }, border: { display: false }, ticks: { display: false } },
+            x: xHidden,
+            y: {
+              min: 0, max: 100, position: 'left', grid: { color: GRID }, border: { display: false },
+              ticks: { color: '#6272A4', maxTicksLimit: 3, callback: (v: any) => `${v}%` },
+            },
           },
           plugins: {
             legend: { display: false },
             tooltip: {
               ...TT,
-              callbacks: { label: ctx => `Sky: ${Math.round(raw[ctx.dataIndex]?.sky ?? 0)}%` },
+              callbacks: {
+                label: ctx => {
+                  const v = ctx.raw as number | null;
+                  return v === null ? '' : `Sky: ${Math.round(v)}%`;
+                },
+              },
             },
           },
         },
