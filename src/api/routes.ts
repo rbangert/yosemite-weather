@@ -23,6 +23,10 @@ export function handleRequest(req: Request): Response {
 
   if (pathname === "/api/alerts") return handleAlerts();
   if (pathname === "/api/data-explorer") return handleDataExplorer();
+  if (pathname === "/api/swe") return handleSweStations();
+
+  const sweStation = pathname.match(/^\/api\/swe\/([^/]+)$/);
+  if (sweStation) return handleSwe(sweStation[1]);
 
   return json({ error: "Not found" }, 404);
 }
@@ -237,6 +241,49 @@ function handleDataExplorer(): Response {
   `).all(now);
 
   return json({ summary, samplePoint, coverage });
+}
+
+// SWE: list all SNOTEL stations we have data for.
+function handleSweStations(): Response {
+  const db = getDb();
+  const stations = db.prepare(`SELECT station_id, name, elevation_ft, latitude, longitude FROM snotel_stations ORDER BY elevation_ft DESC`).all();
+  return json({ stations });
+}
+
+// SWE: return all cached readings for one station, grouped by water year.
+// Each water-year entry is an array of { day, date, value } sorted by day.
+function handleSwe(stationId: string): Response {
+  const db = getDb();
+
+  const station = db.prepare(`SELECT station_id, name, elevation_ft, latitude, longitude FROM snotel_stations WHERE station_id = ?`).get(stationId.toUpperCase());
+  if (!station) return json({ error: "Unknown SNOTEL station" }, 404);
+
+  const rows = db.prepare(`SELECT date, value_in FROM swe_readings WHERE station_id = ? ORDER BY date ASC`).all(stationId.toUpperCase()) as { date: string; value_in: number | null }[];
+
+  // Group into water years, computing day-of-water-year for the x-axis.
+  const waterYears: Record<string, { day: number; date: string; value: number | null }[]> = {};
+
+  for (const row of rows) {
+    const wy = toWaterYear(row.date);
+    const day = toWaterYearDay(row.date);
+    if (!waterYears[wy]) waterYears[wy] = [];
+    waterYears[wy].push({ day, date: row.date, value: row.value_in });
+  }
+
+  return json({ station, waterYears });
+}
+
+function toWaterYear(dateStr: string): string {
+  const [year, month] = dateStr.split("-").map(Number);
+  return String(month >= 10 ? year + 1 : year);
+}
+
+function toWaterYearDay(dateStr: string): number {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const wy = month >= 10 ? year + 1 : year;
+  const wyStartMs = Date.UTC(wy - 1, 9, 1); // Oct 1 = month index 9
+  const dateMs = Date.UTC(year, month - 1, day);
+  return Math.round((dateMs - wyStartMs) / 86_400_000) + 1;
 }
 
 function pointExists(slug: string): boolean {

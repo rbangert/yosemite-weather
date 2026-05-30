@@ -4,11 +4,17 @@ import ObsTable from '../../components/ObsTable.astro';
 import SummaryCard from '../../components/SummaryCard.astro';
 import PeriodForecast from '../../components/PeriodForecast.astro';
 import SunMoonCard from '../../components/SunMoonCard.astro';
+import SWECard from '../../components/SWECard.astro';
 import { fetchOverview, fetchForecast, fetchLatestObservation, fetchPeriodForecast } from '../../lib/api';
 import type { AreaOverview, ForecastRow, ObservationRow, PeriodForecastRow } from '../../lib/api';
 
 const { area } = Astro.params;
 if (!area) return Astro.redirect('/');
+
+// SNOTEL station to show for each area (high-country only has in-park stations).
+const AREA_SWE_STATION: Record<string, string> = {
+  'high-country': 'TUM',
+};
 
 // One representative station per area drives the summary card and 7-day forecast.
 const AREA_REP: Record<string, { slug: string; name: string; lat: number; lon: number }> = {
@@ -68,6 +74,12 @@ if (!areaData && !error) {
 
     {areaData && (
       <ObsTable points={areaData.points} areaSlug={area} />
+    )}
+
+    {AREA_SWE_STATION[area] && (
+      <div class="mt-6">
+        <SWECard stationId={AREA_SWE_STATION[area]} compact={true} />
+      </div>
     )}
   </div>
 </Layout>

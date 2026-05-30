@@ -1,0 +1,22 @@
+---
+import Layout from '../layouts/Layout.astro';
+import SWEStationTabs from '../components/SWEStationTabs.astro';
+---
+
+<Layout title="Snowpack">
+  <div class="mx-auto max-w-7xl px-4 py-8">
+    <div class="mb-8">
+      <h1 class="text-2xl font-bold text-slate-100">Yosemite Snowpack</h1>
+      <p class="mt-1 text-sm text-slate-400">
+        Snow Water Equivalent (SWE) at NRCS SNOTEL stations
+      </p>
+    </div>
+
+    <SWEStationTabs />
+
+    <p class="mt-6 text-xs text-slate-600">
+      Data sourced from the California Data Exchange Center (CDEC), operated by the CA Dept. of Water Resources.
+      SNOTEL stations maintained by NRCS. Values represent daily midnight SWE in inches.
+    </p>
+  </div>
+</Layout>

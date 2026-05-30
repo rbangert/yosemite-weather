@@ -31,6 +31,11 @@ export const config = {
   // each configured point. Larger radius finds more stations but may return
   // one that is far from the actual point.
   synopticRadiusMiles: Number(process.env.SYNOPTIC_RADIUS_MILES) || 15,
+
+  // SNOTEL SWE: poll daily (data only updates once per day at midnight PST).
+  snotelPollIntervalMs: Number(process.env.SNOTEL_POLL_INTERVAL_MS) || 24 * 60 * 60 * 1000,
+  // Number of past water years to backfill (current WY + this many prior WYs).
+  snotelBackfillYears: Number(process.env.SNOTEL_BACKFILL_YEARS) || 10,
 };
 
 // A monitored location, identified by coordinates. NWS resolves these to a

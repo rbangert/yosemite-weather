@@ -1,0 +1,115 @@
+---
+import SWEChart from './SWEChart.astro';
+import { fetchSweStations, fetchSwe } from '../lib/api';
+import type { SnotelStation, SweResponse } from '../lib/api';
+
+let stations: SnotelStation[] = [];
+let responses: SweResponse[] = [];
+let error = false;
+
+try {
+  const { stations: s } = await fetchSweStations();
+  stations = s;
+  responses = await Promise.all(s.map((st) => fetchSwe(st.station_id)));
+} catch {
+  error = true;
+}
+
+const hasData = responses.some((r) => Object.keys(r.waterYears).length > 0);
+---
+
+{error || !hasData ? (
+  <div class="rounded-xl border border-slate-800 bg-slate-900 p-6 text-sm text-slate-500">
+    Snowpack data is being collected — check back shortly.
+  </div>
+) : (
+  <div class="rounded-xl border border-slate-800 bg-slate-900 overflow-hidden" id="swe-tabs-card">
+
+    <!-- Header row -->
+    <div class="flex items-center justify-between border-b border-slate-800 px-4 pt-4 pb-0">
+      <div>
+        <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">Snow Water Equivalent</h2>
+        <p class="mt-0.5 text-xs text-slate-500">Water year runs Oct 1 – Sep 30</p>
+      </div>
+      <div class="shrink-0 text-right text-xs text-slate-500"></div>
+    </div>
+
+    <!-- Station tab buttons -->
+    <div class="flex border-b border-slate-800 px-2" role="tablist">
+      {stations.map((s, i) => (
+        <button
+          role="tab"
+          aria-selected={i === 0 ? 'true' : 'false'}
+          aria-controls={`swe-panel-${s.station_id}`}
+          data-tab-id={s.station_id}
+          class:list={[
+            'swe-tab-btn relative px-3 py-3 text-left transition-colors focus:outline-none',
+            i === 0 ? 'text-[#8BE9FD]' : 'text-[#6272A4] hover:text-[#F8F8F2]',
+          ]}
+        >
+          <span class="block text-sm font-medium">{s.name}</span>
+          <span class="block text-xs opacity-60">{s.elevation_ft.toLocaleString()} ft</span>
+          {/* Active indicator bar */}
+          <span
+            class:list={[
+              'swe-tab-indicator absolute bottom-0 left-0 right-0 h-0.5 rounded-full transition-opacity',
+              i === 0 ? 'opacity-100' : 'opacity-0',
+            ]}
+            style="background: #8BE9FD"
+          ></span>
+        </button>
+      ))}
+    </div>
+
+    <!-- Chart panels — all in DOM at once so Chart.js can initialise them all -->
+    <div class="relative p-4" style="height: 380px;">
+      {responses.map((r, i) => (
+        <div
+          id={`swe-panel-${r.station.station_id}`}
+          role="tabpanel"
+          class:list={[
+            'absolute inset-4 transition-opacity duration-150',
+            i === 0 ? 'opacity-100' : 'opacity-0 pointer-events-none',
+          ]}
+          data-panel-id={r.station.station_id}
+        >
+          <SWEChart station={r.station} waterYears={r.waterYears} bare={true} />
+        </div>
+      ))}
+    </div>
+
+  </div>
+)}
+
+<script>
+  const card = document.getElementById('swe-tabs-card');
+  if (card) {
+    const tabs   = card.querySelectorAll<HTMLButtonElement>('.swe-tab-btn');
+    const panels = card.querySelectorAll<HTMLDivElement>('[data-panel-id]');
+
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        const targetId = tab.dataset.tabId!;
+
+        // Update tab button states
+        tabs.forEach((t) => {
+          const active = t.dataset.tabId === targetId;
+          t.setAttribute('aria-selected', String(active));
+          t.style.color = active ? '#8BE9FD' : '';
+          t.classList.toggle('text-[#8BE9FD]', active);
+          t.classList.toggle('text-[#6272A4]', !active);
+          const indicator = t.querySelector<HTMLSpanElement>('.swe-tab-indicator');
+          if (indicator) indicator.style.opacity = active ? '1' : '0';
+        });
+
+        // Show/hide panels
+        panels.forEach((panel) => {
+          const active = panel.dataset.panelId === targetId;
+          panel.classList.toggle('opacity-0', !active);
+          panel.classList.toggle('pointer-events-none', !active);
+          panel.classList.toggle('opacity-100', active);
+        });
+      });
+    });
+  }
+</script>

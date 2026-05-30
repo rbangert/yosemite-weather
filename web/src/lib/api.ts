@@ -175,3 +175,36 @@ export async function fetchDataExplorer(): Promise<DataExplorerPayload> {
   if (!res.ok) throw new Error(`Data explorer fetch failed: ${res.status}`);
   return res.json() as Promise<DataExplorerPayload>;
 }
+
+// --- SNOTEL SWE -------------------------------------------------------------
+
+export interface SnotelStation {
+  station_id: string;
+  name: string;
+  elevation_ft: number;
+  latitude: number;
+  longitude: number;
+}
+
+export interface SwePoint {
+  day: number;          // day of water year (Oct 1 = 1)
+  date: string;         // YYYY-MM-DD
+  value: number | null; // SWE in inches
+}
+
+export interface SweResponse {
+  station: SnotelStation;
+  waterYears: Record<string, SwePoint[]>;
+}
+
+export async function fetchSweStations(): Promise<{ stations: SnotelStation[] }> {
+  const res = await fetch(`${API_BASE}/api/swe`);
+  if (!res.ok) throw new Error(`SWE stations fetch failed: ${res.status}`);
+  return res.json() as Promise<{ stations: SnotelStation[] }>;
+}
+
+export async function fetchSwe(stationId: string): Promise<SweResponse> {
+  const res = await fetch(`${API_BASE}/api/swe/${encodeURIComponent(stationId)}`);
+  if (!res.ok) throw new Error(`SWE fetch failed: ${res.status}`);
+  return res.json() as Promise<SweResponse>;
+}

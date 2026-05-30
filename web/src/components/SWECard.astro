@@ -1,0 +1,34 @@
+---
+import SWEChart from './SWEChart.astro';
+import { fetchSwe } from '../lib/api';
+import type { SweResponse } from '../lib/api';
+
+interface Props {
+  stationId: string;
+  /** If true, renders a shorter chart suitable for embedding in an area page. */
+  compact?: boolean;
+}
+
+const { stationId, compact = false } = Astro.props;
+
+let data: SweResponse | null = null;
+let hasData = false;
+
+try {
+  data = await fetchSwe(stationId);
+  hasData = Object.values(data.waterYears).some((wy) => wy.length > 0);
+} catch {
+  // Backend not ready or station unknown — render nothing.
+}
+
+const height = compact ? 'h-64' : 'h-80';
+---
+
+{data && hasData ? (
+  <SWEChart station={data.station} waterYears={data.waterYears} height={height} />
+) : data && !hasData ? (
+  <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
+    <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">Snow Water Equivalent</h2>
+    <p class="mt-2 text-sm text-slate-500">Snowpack data is being collected — check back shortly.</p>
+  </div>
+) : null}

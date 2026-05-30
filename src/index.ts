@@ -1,6 +1,7 @@
 import { setupSchema } from "./db";
 import { startServer } from "./api/server";
 import { poll, pollSynopticObservations } from "./poller";
+import { pollSnotel } from "./snotel/poller";
 import { config } from "./config";
 
 setupSchema();
@@ -18,3 +19,7 @@ if (config.synopticApiToken) {
 } else {
   console.log("SYNOPTIC_API_TOKEN not set — Synoptic observations disabled.");
 }
+
+// SNOTEL: backfill historical SWE on first run, then refresh daily.
+pollSnotel().catch((err) => console.error("SNOTEL poll failed:", err));
+setInterval(() => pollSnotel().catch((err) => console.error("SNOTEL poll failed:", err)), config.snotelPollIntervalMs);

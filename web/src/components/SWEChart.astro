@@ -1,0 +1,227 @@
+---
+import type { SnotelStation, SwePoint } from '../lib/api';
+
+interface Props {
+  station: SnotelStation;
+  waterYears: Record<string, SwePoint[]>;
+  height?: string;
+  /** When true, skips the card wrapper and header — the parent owns layout. */
+  bare?: boolean;
+}
+
+const { station, waterYears, height = 'h-80', bare = false } = Astro.props;
+
+const sortedYears = Object.keys(waterYears).map(Number).sort((a, b) => a - b);
+const currentYear = new Date().getMonth() >= 9
+  ? new Date().getFullYear() + 1
+  : new Date().getFullYear();
+
+// Pass compact payload to the client; include date for tooltip lookup.
+const chartData = Object.fromEntries(
+  sortedYears.map((wy) => [
+    wy,
+    (waterYears[wy] ?? []).map((p) => ({ d: p.day, v: p.value, dt: p.date })),
+  ])
+);
+
+const canvasId = `swe-chart-${station.station_id}`;
+---
+
+{bare ? (
+  <div class="flex h-full flex-col">
+    <div class="relative min-h-0 flex-1">
+      <canvas id={canvasId} data-swe={JSON.stringify(chartData)} data-current-wy={currentYear}></canvas>
+    </div>
+    <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 px-1" id={`${canvasId}-legend`}></div>
+  </div>
+) : (
+  <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
+    <div class="mb-3 flex items-start justify-between gap-2">
+      <div>
+        <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">
+          Snow Water Equivalent
+        </h2>
+        <p class="mt-0.5 text-sm font-medium text-slate-200">{station.name}</p>
+        <p class="text-xs text-slate-500">{station.elevation_ft.toLocaleString()} ft elevation</p>
+      </div>
+      <div class="shrink-0 text-right text-xs text-slate-500">
+        Water year<br />(Oct – Sep)
+      </div>
+    </div>
+
+    <div class={`relative ${height}`}>
+      <canvas id={canvasId} data-swe={JSON.stringify(chartData)} data-current-wy={currentYear}></canvas>
+    </div>
+
+    <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1" id={`${canvasId}-legend`}></div>
+  </div>
+)}
+
+<script>
+  import {
+    Chart,
+    LineController,
+    LineElement,
+    PointElement,
+    LinearScale,
+    CategoryScale,
+    Tooltip,
+    Filler,
+  } from 'chart.js';
+
+  Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Filler);
+
+  // Month label positions within a 366-day water year.
+  const WY_MONTH_STARTS = [1, 32, 63, 93, 124, 154, 185, 213, 244, 274, 305, 335];
+  const WY_MONTH_NAMES  = ['Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep'];
+
+  // Dracula theme accent colors (https://draculatheme.com/spec), cycled across years.
+  // Current WY uses Cyan (most distinctive); older years step through the palette
+  // and fade toward the muted Comment color (#6272A4) at reduced opacity.
+  const DRACULA_ACCENTS = [
+    '#8BE9FD', // Cyan    — current year (age 0)
+    '#FF79C6', // Pink    — age 1
+    '#50FA7B', // Green   — age 2
+    '#BD93F9', // Purple  — age 3
+    '#FFB86C', // Orange  — age 4
+    '#F1FA8C', // Yellow  — age 5
+    '#FF5555', // Red     — age 6
+  ];
+
+  function wyColor(wy: number, currentWy: number, _total: number): { color: string; width: number } {
+    const age = currentWy - wy; // 0 = current, 1 = last year, etc.
+    if (age < DRACULA_ACCENTS.length) {
+      return { color: DRACULA_ACCENTS[age], width: age === 0 ? 2.5 : 1.5 };
+    }
+    // Ages 7+ use the Dracula Comment color, cycling through accents at low opacity.
+    return { color: '#6272A4', width: 1 };
+  }
+
+  // Generate x-axis labels for all 366 days, showing month name only at the first day of each month.
+  function buildLabels(): string[] {
+    const labels: string[] = new Array(367).fill('');
+    for (let i = 0; i < WY_MONTH_STARTS.length; i++) {
+      labels[WY_MONTH_STARTS[i]] = WY_MONTH_NAMES[i];
+    }
+    return labels;
+  }
+
+  document.querySelectorAll<HTMLCanvasElement>('canvas[data-swe]').forEach((canvas) => {
+    const raw = canvas.dataset.swe;
+    const currentWy = Number(canvas.dataset.currentWy ?? new Date().getFullYear());
+    if (!raw) return;
+
+    type DayVal = { d: number; v: number | null; dt: string };
+    const chartData: Record<string, DayVal[]> = JSON.parse(raw);
+    const years = Object.keys(chartData).map(Number).sort((a, b) => a - b);
+    if (years.length === 0) return;
+
+    const labels = buildLabels();
+
+    const datasets = years.map((wy) => {
+      const pts = chartData[wy] ?? [];
+      // Build sparse array indexed by day (1..366).
+      // Negatives and values > 90" are CDEC sensor noise — treat as null.
+      const arr: (number | null)[] = new Array(367).fill(null);
+      for (const { d, v } of pts) {
+        if (d >= 1 && d <= 366) arr[d] = (v != null && v >= 0 && v <= 90) ? v : null;
+      }
+      const { color, width } = wyColor(wy, currentWy, years.length);
+      return {
+        label: `WY${wy}`,
+        data: arr,
+        borderColor: color,
+        backgroundColor: 'transparent',
+        borderWidth: width,
+        pointRadius: 0,
+        pointHoverRadius: wy === currentWy ? 4 : 3,
+        pointStyle: 'line',
+        tension: 0.2,
+        spanGaps: true,
+        order: currentWy - wy, // higher order = rendered behind
+      };
+    });
+
+    // Current WY on top.
+    datasets.sort((a, b) => b.order - a.order);
+
+    new Chart(canvas, {
+      type: 'line',
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: { mode: 'index', intersect: false },
+        scales: {
+          x: {
+            grid: { color: 'rgba(148, 163, 184, 0.07)' },
+            ticks: {
+              color: '#64748b',
+              autoSkip: false,
+              maxRotation: 0,
+              callback: (_val, index) => labels[index] || null,
+            },
+          },
+          y: {
+            min: 0,
+            grid: { color: 'rgba(148, 163, 184, 0.07)' },
+            ticks: { color: '#94a3b8', callback: (v) => `${v}"` },
+            title: { display: false },
+          },
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#282A36',
+            borderColor: '#44475A',
+            borderWidth: 1,
+            titleColor: '#6272A4',
+            bodyColor: '#F8F8F2',
+            padding: 10,
+            boxWidth: 20,
+            boxHeight: 2,
+            itemSort: (a, b) => (b.raw as number ?? 0) - (a.raw as number ?? 0),
+            callbacks: {
+              labelColor: (item) => {
+                const c = (item.dataset.borderColor as string) ?? '#6272A4';
+                return { borderColor: c, backgroundColor: c, borderWidth: 0, borderRadius: 1 };
+              },
+              title: (items) => {
+                const idx = items[0]?.dataIndex ?? 0;
+                // Find a date string from any WY's point at this day index.
+                for (const pts of Object.values(chartData as Record<string, DayVal[]>)) {
+                  const p = pts.find((x) => x.d === idx);
+                  if (p?.dt) {
+                    const d = new Date(p.dt + 'T12:00:00');
+                    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                  }
+                }
+                return labels[idx] ? `Day ${idx}` : '';
+              },
+              label: (item) => {
+                const v = item.raw as number | null;
+                if (v == null) return null as unknown as string;
+                return ` ${item.dataset.label}: ${v.toFixed(1)}"`;
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Build legend below chart using Dracula foreground/comment colors.
+    const legendEl = document.getElementById(`${canvas.id}-legend`);
+    if (legendEl) {
+      for (const wy of [...years].reverse()) {
+        const { color } = wyColor(wy, currentWy, years.length);
+        const isCurrent = wy === currentWy;
+        const item = document.createElement('span');
+        item.className = 'flex items-center gap-1 text-xs';
+        item.style.color = isCurrent ? '#F8F8F2' : '#6272A4';
+        item.innerHTML = `<span style="display:inline-block;width:20px;height:2px;background:${color};border-radius:1px;flex-shrink:0"></span>${isCurrent ? `<strong>WY${wy}</strong>` : `WY${wy}`}`;
+        legendEl.appendChild(item);
+      }
+    }
+  });
+</script>

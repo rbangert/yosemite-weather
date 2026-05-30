@@ -541,7 +541,7 @@ adapted for Yosemite. Milestones are ordered roughly by priority; checked items 
 - [x] 7-day extended forecast — 12-hour day/night periods from NWS `/forecast` endpoint with weather icons, color-coded temperature, wind direction icons, and precip _(ccweather: 7-day forecast)_
 - [x] 7-day period forecast on area overview pages
 
-#### Milestone 6 — Alerts & conditions
+#### Milestone 4 — Alerts & conditions
 
 - [x] NWS active alerts (watches / warnings / advisories) banner — weather zone CAZ324 + fire weather zone CAZ592 _(ccweather: alerts)_
 - [x] Sunrise / sunset & moon phase per area — sun times, day length, moon phase icon + illumination, rise/set times, next-phase countdown
@@ -556,7 +556,7 @@ adapted for Yosemite. Milestones are ordered roughly by priority; checked items 
 - [ ] Unit toggle (°F/°C, mph/kph, in/cm)
 - [ ] WBGT (wet bulb globe temperature / heat stress) indicator on detail page — available from NWS raw gridpoint
 
-#### Milestone 4 — Snow & avalanche
+#### Milestone 5 — Snow & avalanche
 
 - [ ] Snowfall accumulation display + snow-level line on the chart _(ccweather: new-snow estimates)_
 - [ ] Snow depth with 12 / 24 / 48-hour change _(ccweather: snow depth + deltas)_ — needs SNOTEL data
@@ -564,20 +564,20 @@ adapted for Yosemite. Milestones are ordered roughly by priority; checked items 
 - [ ] Snow Water Equivalent multi-season comparison _(ccweather: SWE graphs)_ — needs SNOTEL data
 - [ ] Avalanche forecast links (e.g. Eastern Sierra Avalanche Center) _(ccweather: avalanche section)_
 
-#### Milestone 5 — Maps & imagery
+#### Milestone 6 — Maps & imagery
 
 - [ ] Interactive map of monitored points (Leaflet/MapLibre) with click-through to detail
 - [ ] NOAA radar layer / embed _(ccweather: interactive radar)_
 - [ ] NPS Yosemite webcams _(ccweather: webcam feeds)_
 
-#### Milestone 6 — Alerts & conditions (continued)
+#### Milestone 7 — Alerts & conditions (continued)
 
 - [ ] Fire weather text products — daily FWF narrative from NWS Hanford office (HNX)
 - [ ] Multi-location observation comparison table — Valley / Tuolumne / Wawona stations side-by-side
 - [ ] NWS hourly forecast enrichment — apparent temperature, WBGT from raw gridpoint
 - [ ] Road status & closures (Tioga / Glacier Point roads via NPS) _(ccweather: road alerts)_
 
-#### Milestone 7 — Polish & platform
+#### Milestone 8 — Polish & platform
 
 - [ ] Location search / filter
 - [ ] Favorites / saved locations (localStorage)
@@ -588,7 +588,7 @@ adapted for Yosemite. Milestones are ordered roughly by priority; checked items 
 
 ## Backend Roadmap
 
-- [x] Synoptic Data API integration for wind/obs data not available through NWS.
+- [*] Synoptic Data API integration for wind/obs data not available through NWS. (Built, but waiting on Synoptic.)
 - [x] NWS active-alerts polling + passthrough endpoint (weather zone CAZ324 + fire weather zone CAZ592).
 - [x] 7-day period forecast polling + endpoint (`GET /api/points/:slug/forecast/periods`).
 - [ ] SNOTEL ingestion — snow depth & snow water equivalent (feeds Milestone 4).

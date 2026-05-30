@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { config, getAllPoints } from "../config";
+import { SNOTEL_STATIONS } from "../snotel/client";
 import { mkdirSync } from "fs";
 import { dirname } from "path";
 
@@ -137,6 +138,32 @@ export function setupSchema(): void {
     )
   `);
 
+  // SNOTEL SWE data from California CDEC API.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS snotel_stations (
+      station_id   TEXT PRIMARY KEY,
+      name         TEXT NOT NULL,
+      elevation_ft REAL,
+      latitude     REAL,
+      longitude    REAL
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS swe_readings (
+      station_id TEXT NOT NULL,
+      date       TEXT NOT NULL,   -- YYYY-MM-DD (local date)
+      value_in   REAL,            -- SWE in inches, NULL = missing
+      PRIMARY KEY (station_id, date),
+      FOREIGN KEY (station_id) REFERENCES snotel_stations(station_id)
+    )
+  `);
+
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_swe_station_date
+    ON swe_readings(station_id, date)
+  `);
+
   // Migrations for columns added after initial schema.
   try { db.run(`ALTER TABLE observations ADD COLUMN snow_depth REAL`); } catch {}
   try { db.run(`ALTER TABLE observations ADD COLUMN source TEXT NOT NULL DEFAULT 'nws'`); } catch {}
@@ -159,6 +186,7 @@ export function setupSchema(): void {
   }
 
   seedPoints();
+  seedSnotelStations();
   console.log("Database schema initialized at", config.dbPath);
 }
 
@@ -179,6 +207,25 @@ function seedPoints(): void {
   const tx = db.transaction(() => {
     for (const p of getAllPoints()) {
       upsert.run(p.slug, p.name, p.areaSlug, p.areaName, p.latitude, p.longitude);
+    }
+  });
+  tx();
+}
+
+function seedSnotelStations(): void {
+  const db = getDb();
+  const upsert = db.prepare(`
+    INSERT INTO snotel_stations (station_id, name, elevation_ft, latitude, longitude)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(station_id) DO UPDATE SET
+      name         = excluded.name,
+      elevation_ft = excluded.elevation_ft,
+      latitude     = excluded.latitude,
+      longitude    = excluded.longitude
+  `);
+  const tx = db.transaction(() => {
+    for (const s of SNOTEL_STATIONS) {
+      upsert.run(s.stationId, s.name, s.elevationFt, s.latitude, s.longitude);
     }
   });
   tx();
