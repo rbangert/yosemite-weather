@@ -53,6 +53,12 @@ function arrowStyle(deg: number | null): string {
   if (deg === null) return 'display:none';
   return `transform:rotate(${Math.round(deg + 180)}deg);display:inline-block`;
 }
+
+// 8-point compass label for a bearing the wind comes FROM.
+function cardinal(deg: number | null): string {
+  if (deg === null) return '';
+  return ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(deg / 45) % 8];
+}
 ---
 
 <div id="meteogram" data-forecast={JSON.stringify(payload)} data-area={area} data-nights={JSON.stringify(nightRuns)}>
@@ -79,13 +85,17 @@ function arrowStyle(deg: number | null): string {
       <!-- Graph 2: Surface Wind (+ gust) -->
       <div class="mt-2 px-1 text-[10px] uppercase tracking-wide text-slate-500">Surface Wind</div>
       <div class="relative" style="height:90px"><canvas id="mg-wind"></canvas></div>
-      <!-- Wind direction strip: arrows point the way the wind blows -->
-      <div class="flex select-none" aria-hidden="true">
+      <!-- Wind direction strip: arrow points the way the wind blows, with the
+           compass bearing it comes from labelled beneath (every 6th hour). -->
+      <div class="flex select-none text-slate-500" aria-hidden="true">
         {payload.map((pt, i) => (
-          <span class="flex-1 flex items-center justify-center" style="height:14px">
-            {i % 6 === 0
-              ? <span class="text-[9px] text-slate-500" style={arrowStyle(pt.dir)}>↑</span>
-              : ''}
+          <span class="flex-1 flex flex-col items-center justify-start gap-0.5" style="height:26px">
+            {i % 6 === 0 && pt.dir !== null ? (
+              <>
+                <span class="text-[11px] leading-none text-[#50FA7B]/70" style={arrowStyle(pt.dir)}>↑</span>
+                <span class="text-[8px] leading-none text-slate-500">{cardinal(pt.dir)}</span>
+              </>
+            ) : ''}
           </span>
         ))}
       </div>
@@ -140,6 +150,8 @@ function arrowStyle(deg: number | null): string {
 
     const toC  = (f: number | null): number | null => f !== null ? Math.round((f - 32) * 5 / 9) : null;
     const toKh = (m: number | null): number | null => m !== null ? Math.round(m * 1.60934) : null;
+    const cardinal = (deg: number | null): string =>
+      deg === null ? '' : ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(deg / 45) % 8];
 
     let currentSys = localStorage.getItem('units') ?? 'imperial';
 
@@ -327,9 +339,10 @@ function arrowStyle(deg: number | null): string {
               borderWidth: 1.5, pointRadius: 0, tension: 0.4, spanGaps: true,
             },
             {
-              type: 'line', label: 'Gust', data: getGusts(), fill: false,
-              borderColor: 'rgba(80,250,123,0.45)', borderDash: [4, 3],
-              borderWidth: 1, pointRadius: 0, tension: 0.4, spanGaps: true,
+              // Gust fills DOWN to the wind line, shading the gust range.
+              type: 'line', label: 'Gust', data: getGusts(), fill: '-1',
+              borderColor: 'rgba(80,250,123,0.5)', backgroundColor: 'rgba(80,250,123,0.12)',
+              borderDash: [4, 3], borderWidth: 1, pointRadius: 0, tension: 0.4, spanGaps: true,
             } as any,
           ],
         },
@@ -356,6 +369,10 @@ function arrowStyle(deg: number | null): string {
                   if (v === null) return '';
                   const unit = currentSys === 'metric' ? 'km/h' : 'mph';
                   return `${ctx.dataset.label}: ${Math.round(v)} ${unit}`;
+                },
+                afterBody: items => {
+                  const d = raw[items[0]?.dataIndex ?? -1]?.dir;
+                  return d == null ? '' : `From ${cardinal(d)} (${Math.round(d)}°)`;
                 },
               },
             },
