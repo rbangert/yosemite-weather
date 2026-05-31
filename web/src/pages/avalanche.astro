@@ -1,0 +1,174 @@
+---
+import Layout from '../layouts/Layout.astro';
+import AvalancheCard from '../components/AvalancheCard.astro';
+import DangerPyramid from '../components/DangerPyramid.astro';
+import AvalancheProblemCard from '../components/AvalancheProblemCard.astro';
+import { fetchAvalancheZones, fetchAvalancheForecast } from '../lib/api';
+import type { AvalancheZoneSummary, AvalancheForecast } from '../lib/api';
+import { dangerInfo, formatDateTime } from '../lib/avalanche';
+
+let zones: AvalancheZoneSummary[] = [];
+try {
+  zones = await fetchAvalancheZones();
+} catch {
+  // Backend not ready — render the empty state below.
+}
+
+// Selected zone comes from ?zone=CENTERID, defaulting to the first (closest).
+const requested = Astro.url.searchParams.get('zone');
+const selectedId =
+  zones.find((z) => z.centerId === requested)?.centerId ?? zones[0]?.centerId ?? null;
+
+let forecast: AvalancheForecast | null = null;
+if (selectedId) {
+  try {
+    forecast = await fetchAvalancheForecast(selectedId);
+  } catch {
+    forecast = null;
+  }
+}
+
+const hasTomorrow = forecast?.danger?.some((d) => d.day === 'tomorrow') ?? false;
+const inSeason = forecast != null && !forecast.offSeason && forecast.dangerLevel > 0;
+const overall = dangerInfo(forecast?.dangerLevel);
+---
+
+<Layout title="Avalanche">
+  <div class="mx-auto max-w-7xl px-4 py-8">
+    <div class="mb-6">
+      <h1 class="text-2xl font-bold text-slate-100">Avalanche Forecasts</h1>
+      <p class="mt-1 text-sm text-slate-400">
+        Yosemite has no in-park avalanche forecast. These centers cover the neighboring
+        backcountry on the park's borders.
+      </p>
+    </div>
+
+    {zones.length === 0 ? (
+      <div class="rounded-xl border border-slate-800 bg-slate-900 p-6 text-sm text-slate-400">
+        Avalanche data is being collected — check back shortly.
+      </div>
+    ) : (
+      <>
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {zones.map((z) => (
+            <div class={z.centerId === selectedId ? 'rounded-xl ring-2 ring-amber-500/60' : ''}>
+              <AvalancheCard zone={z} href={`/avalanche?zone=${z.centerId}`} />
+            </div>
+          ))}
+        </div>
+
+        {forecast && (
+          <section class="mt-8">
+            <div class="flex flex-wrap items-end justify-between gap-3 border-b border-slate-800 pb-3">
+              <div>
+                <h2 class="text-xl font-semibold text-slate-100">{forecast.name}</h2>
+                <p class="text-xs text-slate-500">{forecast.relation}</p>
+              </div>
+              <div class="text-right text-xs text-slate-500">
+                {forecast.publishedTime && <div>Issued {formatDateTime(forecast.publishedTime)}</div>}
+                {inSeason && forecast.expiresTime && <div>Expires {formatDateTime(forecast.expiresTime)}</div>}
+                {forecast.author && <div class="text-slate-600">By {forecast.author}</div>}
+              </div>
+            </div>
+
+            {!inSeason && (
+              <div class="mt-4 rounded-xl border border-slate-700 bg-slate-800/40 p-4">
+                <div class="text-sm font-semibold text-slate-200">No active avalanche forecast</div>
+                <p class="mt-1 text-sm text-slate-400">
+                  This zone is outside its forecast season. The seasonal summary below is the
+                  most recent published guidance.
+                </p>
+              </div>
+            )}
+
+            {inSeason && (
+              <div class="mt-5 grid grid-cols-1 gap-6 lg:grid-cols-2">
+                <div class="rounded-xl border border-slate-800 bg-slate-900 p-5">
+                  <div class="mb-4 flex items-center gap-3">
+                    <span
+                      class="flex h-11 w-11 items-center justify-center rounded-lg text-lg font-bold"
+                      style={`background:${overall.bg};color:${overall.text}`}
+                    >{forecast.dangerLevel}</span>
+                    <div>
+                      <div class="text-xs uppercase tracking-wider text-slate-500">Overall Danger</div>
+                      <div class="text-lg font-bold text-slate-100">{overall.label}</div>
+                    </div>
+                  </div>
+                  <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Today</div>
+                  <div class="mt-2"><DangerPyramid danger={forecast.danger} day="current" /></div>
+                </div>
+
+                {hasTomorrow && (
+                  <div class="rounded-xl border border-slate-800 bg-slate-900 p-5">
+                    <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Tomorrow</div>
+                    <div class="mt-2"><DangerPyramid danger={forecast.danger} day="tomorrow" /></div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {forecast.bottomLine && (
+              <div class="mt-6">
+                <h3 class="text-sm font-semibold uppercase tracking-wider text-amber-500">The Bottom Line</h3>
+                <div class="avy-prose mt-2 text-sm leading-relaxed text-slate-300" set:html={forecast.bottomLine} />
+              </div>
+            )}
+
+            {inSeason && forecast.problems.length > 0 && (
+              <div class="mt-8">
+                <h3 class="mb-3 text-sm font-semibold uppercase tracking-wider text-amber-500">
+                  Avalanche Problems
+                </h3>
+                <div class="grid grid-cols-1 gap-4">
+                  {forecast.problems.map((p) => <AvalancheProblemCard problem={p} />)}
+                </div>
+              </div>
+            )}
+
+            {forecast.hazardDiscussion && (
+              <div class="mt-8">
+                <h3 class="text-sm font-semibold uppercase tracking-wider text-amber-500">Forecast Discussion</h3>
+                <div class="avy-prose mt-2 text-sm leading-relaxed text-slate-300" set:html={forecast.hazardDiscussion} />
+              </div>
+            )}
+
+            {forecast.weatherDiscussion && (
+              <div class="mt-8">
+                <h3 class="text-sm font-semibold uppercase tracking-wider text-amber-500">Weather Discussion</h3>
+                <div class="avy-prose mt-2 text-sm leading-relaxed text-slate-300" set:html={forecast.weatherDiscussion} />
+              </div>
+            )}
+
+            {forecast.link && (
+              <a
+                href={forecast.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="mt-8 inline-flex items-center gap-1.5 text-sm font-medium text-amber-400 hover:text-amber-300"
+              >
+                View full forecast at {forecast.centerId}
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M7 17L17 7M17 7H8M17 7v9" />
+                </svg>
+              </a>
+            )}
+          </section>
+        )}
+      </>
+    )}
+
+    <p class="mt-10 text-xs text-slate-600">
+      Data from the National Avalanche Center (avalanche.org) aggregating ESAC, BAC, and SAC
+      forecasts. Always consult the issuing center directly before traveling in avalanche terrain.
+    </p>
+  </div>
+</Layout>
+
+<style is:global>
+  /* Minimal typography for forecast HTML injected via set:html. */
+  .avy-prose p { margin-bottom: 0.75rem; }
+  .avy-prose p:last-child { margin-bottom: 0; }
+  .avy-prose a { color: #fbbf24; text-decoration: underline; }
+  .avy-prose ul { list-style: disc; padding-left: 1.25rem; margin-bottom: 0.75rem; }
+  .avy-prose strong { color: #e2e8f0; font-weight: 600; }
+</style>

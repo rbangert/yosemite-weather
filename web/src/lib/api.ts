@@ -218,3 +218,73 @@ export async function fetchSwe(stationId: string): Promise<SweResponse> {
   if (!res.ok) throw new Error(`SWE fetch failed: ${res.status}`);
   return res.json() as Promise<SweResponse>;
 }
+
+// --- Avalanche (National Avalanche Center) ----------------------------------
+
+export interface AvalancheZoneSummary {
+  centerId: string;
+  zoneId: number;
+  name: string;
+  relation: string;
+  productType: string | null;
+  offSeason: boolean | null;
+  dangerLevel: number; // -1 = no rating, 1–5 North American Danger Scale
+  publishedTime: string | null;
+  expiresTime: string | null;
+  link: string | null;
+  fetchedAt: string | null;
+}
+
+export interface DangerByElevation {
+  day: string; // "current" | "tomorrow"
+  upper: number;
+  middle: number;
+  lower: number;
+}
+
+export interface AvalancheProblem {
+  rank: number | null;
+  name: string;
+  likelihood: string | null;
+  sizeMin: string | null;
+  sizeMax: string | null;
+  location: string[]; // aspect+elevation tokens, e.g. "north upper"
+  description: string | null; // HTML
+}
+
+export interface AvalancheForecast {
+  centerId: string;
+  zoneId: number;
+  name: string;
+  relation: string | null;
+  productType: string | null;
+  offSeason: boolean;
+  dangerLevel: number;
+  publishedTime: string | null;
+  expiresTime: string | null;
+  author: string | null;
+  bottomLine: string | null; // HTML
+  hazardDiscussion: string | null; // HTML
+  weatherDiscussion: string | null; // HTML
+  danger: DangerByElevation[];
+  problems: AvalancheProblem[];
+  link: string | null;
+  fetchedAt: string | null;
+}
+
+export async function fetchAvalancheZones(): Promise<AvalancheZoneSummary[]> {
+  try {
+    const res = await fetch(`${API_BASE}/api/avalanche`);
+    if (!res.ok) return [];
+    return res.json() as Promise<AvalancheZoneSummary[]>;
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchAvalancheForecast(centerId: string): Promise<AvalancheForecast | null> {
+  const res = await fetch(`${API_BASE}/api/avalanche/${encodeURIComponent(centerId)}`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Avalanche forecast fetch failed: ${res.status}`);
+  return res.json() as Promise<AvalancheForecast>;
+}

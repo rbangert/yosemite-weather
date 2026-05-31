@@ -1,0 +1,62 @@
+---
+import { ASPECTS, ELEVATIONS, activeSectors, sectorPath } from '../lib/avalanche';
+
+interface Props {
+  location: string[];
+  size?: number;
+  fill?: string; // active-sector color
+}
+
+const { location, size = 160, fill = '#ef1c29' } = Astro.props;
+
+const active = activeSectors(location);
+const cx = size / 2;
+const cy = size / 2;
+const maxR = size / 2 - 14; // leave room for N/E/S/W labels
+const ringStep = maxR / 3;
+
+// Inner→outer rings map to lower→middle→upper elevation. Each aspect is a 45°
+// wedge centered on its compass direction (north at top).
+const sectors: { path: string; on: boolean }[] = [];
+for (let ai = 0; ai < ASPECTS.length; ai++) {
+  const startDeg = ai * 45 - 22.5;
+  const endDeg = ai * 45 + 22.5;
+  for (let ei = 0; ei < ELEVATIONS.length; ei++) {
+    const rInner = ei * ringStep + 6; // small hole in the middle
+    const rOuter = (ei + 1) * ringStep + 6;
+    sectors.push({
+      path: sectorPath(cx, cy, rInner, rOuter, startDeg, endDeg),
+      on: active.has(`${ASPECTS[ai]}|${ELEVATIONS[ei]}`),
+    });
+  }
+}
+
+const labels = [
+  { t: 'N', x: cx, y: 10 },
+  { t: 'E', x: size - 6, y: cy + 4 },
+  { t: 'S', x: cx, y: size - 3 },
+  { t: 'W', x: 6, y: cy + 4 },
+];
+---
+
+<svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} role="img" aria-label="Avalanche problem aspects and elevations">
+  {sectors.map((s) => (
+    <path
+      d={s.path}
+      fill={s.on ? fill : '#1e293b'}
+      stroke="#0f172a"
+      stroke-width="1"
+    />
+  ))}
+  {labels.map((l) => (
+    <text
+      x={l.x}
+      y={l.y}
+      text-anchor="middle"
+      dominant-baseline="middle"
+      class="fill-slate-400"
+      font-size="11"
+      font-weight="600"
+    >{l.t}</text>
+  ))}
+</svg>

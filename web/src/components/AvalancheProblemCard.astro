@@ -1,0 +1,53 @@
+---
+import type { AvalancheProblem } from '../lib/api';
+import AvalancheRose from './AvalancheRose.astro';
+
+interface Props {
+  problem: AvalancheProblem;
+}
+
+const { problem } = Astro.props;
+
+const sizeRange =
+  problem.sizeMin && problem.sizeMax
+    ? problem.sizeMin === problem.sizeMax
+      ? `D${problem.sizeMin}`
+      : `D${problem.sizeMin}–D${problem.sizeMax}`
+    : null;
+---
+
+<div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
+  <div class="flex flex-col gap-4 sm:flex-row sm:items-start">
+    <div class="shrink-0 self-center sm:self-start">
+      <AvalancheRose location={problem.location} size={150} />
+    </div>
+
+    <div class="min-w-0 flex-1">
+      <div class="flex flex-wrap items-center gap-2">
+        {problem.rank != null && (
+          <span class="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] font-bold text-slate-300">#{problem.rank}</span>
+        )}
+        <h3 class="text-base font-semibold text-slate-100">{problem.name}</h3>
+      </div>
+
+      <div class="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs">
+        {problem.likelihood && (
+          <div>
+            <span class="text-slate-500">Likelihood:</span>
+            <span class="ml-1 font-medium capitalize text-slate-200">{problem.likelihood}</span>
+          </div>
+        )}
+        {sizeRange && (
+          <div>
+            <span class="text-slate-500">Size:</span>
+            <span class="ml-1 font-medium text-slate-200">{sizeRange}</span>
+          </div>
+        )}
+      </div>
+
+      {problem.description && (
+        <div class="avy-prose mt-3 text-sm leading-relaxed text-slate-300" set:html={problem.description} />
+      )}
+    </div>
+  </div>
+</div>

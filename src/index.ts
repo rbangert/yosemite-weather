@@ -2,6 +2,7 @@ import { setupSchema } from "./db";
 import { startServer } from "./api/server";
 import { poll, pollSynopticObservations } from "./poller";
 import { pollSnotel } from "./snotel/poller";
+import { pollAvalanche } from "./avalanche/poller";
 import { config } from "./config";
 
 setupSchema();
@@ -23,3 +24,8 @@ if (config.synopticApiToken) {
 // SNOTEL: backfill historical SWE on first run, then refresh daily.
 pollSnotel().catch((err) => console.error("SNOTEL poll failed:", err));
 setInterval(() => pollSnotel().catch((err) => console.error("SNOTEL poll failed:", err)), config.snotelPollIntervalMs);
+
+// Avalanche: neighboring-zone forecasts from the National Avalanche Center.
+// Updates ~once daily during season, so a few times a day is plenty.
+pollAvalanche().catch((err) => console.error("Avalanche poll failed:", err));
+setInterval(() => pollAvalanche().catch((err) => console.error("Avalanche poll failed:", err)), config.avalanchePollIntervalMs);
