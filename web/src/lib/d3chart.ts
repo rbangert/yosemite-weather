@@ -115,6 +115,17 @@ export function leftAxis(g: any, o: {
   return gg;
 }
 
+/** Right value axis (no gridlines) for dual-axis charts. */
+export function rightAxis(g: any, o: {
+  y: any; fmt: (v: any) => string; color: string; ticks?: number; xRight: number;
+}): any {
+  const ax = d3.axisRight(o.y).ticks(o.ticks ?? 4).tickFormat(o.fmt as any).tickSize(0);
+  const gg = g.append('g').attr('transform', `translate(${o.xRight},0)`).call(ax);
+  gg.select('.domain').remove();
+  gg.selectAll('text').attr('fill', o.color).attr('font-size', 9);
+  return gg;
+}
+
 /** Horizontal dashed reference line + label (e.g. freezing, dry-air). */
 export function refLine(g: any, o: {
   y: any; value: number; color: string; label: string; minX: number; maxX: number;

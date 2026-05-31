@@ -7,7 +7,7 @@ interface Props {
 
 const { forecast } = Astro.props;
 
-// Shape a compact payload server-side; the client script reads it off the canvas.
+// Shape a compact payload server-side; the client script reads it off the host.
 const points = forecast.map(row => ({
   t: row.valid_time,
   temp: row.air_temp,
@@ -29,132 +29,121 @@ const points = forecast.map(row => ({
       </span>
     </div>
   </div>
-  <div class="relative h-64">
-    <canvas id="forecast-chart" data-forecast={JSON.stringify(points)}></canvas>
-  </div>
+  <div id="forecast-chart-d3" class="relative h-64" data-forecast={JSON.stringify(points)}></div>
 </div>
 
-<script>
-  import {
-    Chart,
-    LineController,
-    BarController,
-    LineElement,
-    BarElement,
-    PointElement,
-    LinearScale,
-    CategoryScale,
-    Tooltip,
-    Filler,
-  } from 'chart.js';
+<style is:global>
+  #forecast-chart-d3 svg { display: block; }
+  #forecast-chart-d3 .fc-tip {
+    position: absolute; pointer-events: none; z-index: 20; display: none;
+    background: #1e293b; border: 1px solid #334155; border-radius: 6px;
+    padding: 6px 8px; font-size: 11px; color: #cbd5e1; white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  #forecast-chart-d3 .fc-tip .tip-title { color: #f1f5f9; font-weight: 600; margin-bottom: 3px; }
+  #forecast-chart-d3 .fc-tip .tip-row { display: flex; gap: 10px; justify-content: space-between; }
+  #forecast-chart-d3 .fc-tip .tip-swatch { display: inline-block; width: 10px; height: 6px; border-radius: 1px; margin-right: 5px; vertical-align: middle; }
+</style>
 
-  Chart.register(
-    LineController,
-    BarController,
-    LineElement,
-    BarElement,
-    PointElement,
-    LinearScale,
-    CategoryScale,
-    Tooltip,
-    Filler,
-  );
+<script>
+  import * as d3 from 'd3';
+  import {
+    leftAxis, rightAxis, timeAxis, attachHover, linePath, areaPath, halfStep,
+    toC, currentUnitSystem, onUnitsChange, type FocusSeries,
+  } from '../lib/d3chart';
+
+  const TEMP = '#fbbf24';
+  const PRECIP_FILL = 'rgba(56,189,248,0.35)';
+  const PRECIP_STROKE = 'rgba(56,189,248,0.55)';
+  const PRECIP_AXIS = '#38bdf8';
 
   type Point = { t: string; temp: number | null; precip: number | null };
 
-  const canvas = document.getElementById('forecast-chart') as HTMLCanvasElement | null;
-  const raw = canvas?.dataset.forecast;
+  const host = document.getElementById('forecast-chart-d3') as HTMLDivElement | null;
+  if (host && host.dataset.forecast) {
+    const raw: Point[] = JSON.parse(host.dataset.forecast);
+    const times = raw.map(r => new Date(r.t));
 
-  if (canvas && raw) {
-    const rows: Point[] = JSON.parse(raw);
-    const rawTemps = rows.map(r => r.temp);
+    let sys = currentUnitSystem();
+    const tConv = (v: number | null) => sys === 'metric' ? toC(v) : v;
+    const tUnit = () => sys === 'metric' ? '°C' : '°F';
 
-    const toC = (f: number | null) => f !== null ? Math.round((f - 32) * 5 / 9) : null;
+    const tip = document.createElement('div');
+    tip.className = 'fc-tip';
+    host.appendChild(tip);
 
-    const initSys = localStorage.getItem('units') ?? 'imperial';
-    const initTemps = initSys === 'metric' ? rawTemps.map(toC) : rawTemps;
-    const initLabel = initSys === 'metric' ? 'Temp (°C)' : 'Temp (°F)';
+    const M = { left: 36, right: 38, top: 8, bottom: 18 };
 
-    // Sync the legend chip with the stored pref
+    function render() {
+      const width = Math.max(280, host!.clientWidth || 280);
+      const height = Math.max(160, host!.clientHeight || 256);
+      host!.querySelectorAll('svg').forEach(n => n.remove());
+
+      const svg = d3.select(host!).append('svg').attr('width', width).attr('height', height);
+      const plotBottom = height - M.bottom;
+      const x = d3.scaleTime().domain([times[0], times[times.length - 1]]).range([M.left, width - M.right]);
+      const innerWidth = width - M.left - M.right;
+
+      const temps = raw.map(r => tConv(r.temp));
+      const tvals = temps.filter((v): v is number => v != null);
+      const yT = d3.scaleLinear().domain([d3.min(tvals)!, d3.max(tvals)!]).nice().range([plotBottom, M.top]);
+      const yP = d3.scaleLinear().domain([0, 100]).range([plotBottom, M.top]);
+
+      // Axes — temp (left, with gridlines) and precip % (right).
+      leftAxis(svg.append('g'), { y: yT, fmt: v => `${v}°`, color: TEMP, x0: M.left, innerWidth });
+      rightAxis(svg.append('g'), { y: yP, fmt: v => `${v}%`, color: PRECIP_AXIS, xRight: width - M.right, ticks: 3 });
+
+      // Precip bars (drawn first, behind the temp line).
+      const barW = Math.max(1, halfStep(x, times) * 1.6);
+      const base = yP(0);
+      raw.forEach((r, i) => {
+        if (r.precip == null || r.precip <= 0) return;
+        svg.append('rect').attr('x', x(times[i]) - barW / 2).attr('y', yP(r.precip))
+          .attr('width', barW).attr('height', base - yP(r.precip))
+          .attr('fill', PRECIP_FILL).attr('stroke', PRECIP_STROKE).attr('stroke-width', 1);
+      });
+
+      // Temperature area + line.
+      svg.append('path').attr('d', areaPath(temps, x, times, yT, plotBottom) ?? '').attr('fill', 'rgba(251,191,36,0.12)');
+      svg.append('path').attr('d', linePath(temps, x, times, yT) ?? '').attr('fill', 'none').attr('stroke', TEMP).attr('stroke-width', 2);
+
+      timeAxis(svg, { x, yTop: plotBottom });
+
+      const focus: FocusSeries[] = [{ top: 0, y: yT, color: TEMP, data: temps }];
+      attachHover(svg, {
+        x, times, minX: M.left, maxX: width - M.right, plotBottom, focus,
+        onHover: showTip,
+        onLeave: () => { tip.style.display = 'none'; },
+      });
+    }
+
+    function showTip(i: number, px: number) {
+      const r = raw[i];
+      const rows: string[] = [];
+      if (r.temp != null) rows.push(`<div class="tip-row"><span><span class="tip-swatch" style="background:${TEMP}"></span>Temp</span><span>${tConv(r.temp)}${tUnit()}</span></div>`);
+      if (r.precip != null) rows.push(`<div class="tip-row"><span><span class="tip-swatch" style="background:${PRECIP_AXIS}"></span>Precip</span><span>${Math.round(r.precip)}%</span></div>`);
+      const title = times[i].toLocaleString('en-US', { weekday: 'short', hour: 'numeric', hour12: true });
+      tip.innerHTML = `<div class="tip-title">${title}</div>${rows.join('')}`;
+      tip.style.display = 'block';
+      const hostW = host!.clientWidth;
+      const tw = tip.offsetWidth;
+      let left = px + 12;
+      if (left + tw > hostW) left = px - tw - 12;
+      tip.style.left = `${Math.max(0, left)}px`;
+      tip.style.top = '4px';
+    }
+
+    // Keep the legend unit chip in sync.
     const unitLabel = document.getElementById('chart-temp-unit');
-    if (unitLabel) unitLabel.textContent = initSys === 'metric' ? '°C' : '°F';
+    if (unitLabel) unitLabel.textContent = tUnit();
 
-    const labels = rows.map(r =>
-      new Date(r.t).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', hour12: true }),
-    );
-
-    const chart = new Chart(canvas, {
-      data: {
-        labels,
-        datasets: [
-          {
-            type: 'line',
-            label: initLabel,
-            data: initTemps,
-            yAxisID: 'yTemp',
-            borderColor: '#fbbf24',
-            backgroundColor: 'rgba(251, 191, 36, 0.12)',
-            borderWidth: 2,
-            pointRadius: 0,
-            pointHoverRadius: 4,
-            tension: 0.3,
-            fill: true,
-            spanGaps: true,
-          },
-          {
-            type: 'bar',
-            label: 'Precip (%)',
-            data: rows.map(r => r.precip),
-            yAxisID: 'yPrecip',
-            backgroundColor: 'rgba(56, 189, 248, 0.35)',
-            borderColor: 'rgba(56, 189, 248, 0.55)',
-            borderWidth: 1,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        scales: {
-          x: {
-            grid: { color: 'rgba(148, 163, 184, 0.08)' },
-            ticks: { color: '#94a3b8', maxTicksLimit: 12, autoSkip: true, maxRotation: 0 },
-          },
-          yTemp: {
-            position: 'left',
-            grid: { color: 'rgba(148, 163, 184, 0.08)' },
-            ticks: { color: '#fbbf24', callback: value => `${value}°` },
-          },
-          yPrecip: {
-            position: 'right',
-            min: 0,
-            max: 100,
-            grid: { drawOnChartArea: false },
-            ticks: { color: '#38bdf8', callback: value => `${value}%` },
-          },
-        },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            backgroundColor: '#1e293b',
-            borderColor: '#334155',
-            borderWidth: 1,
-            titleColor: '#f1f5f9',
-            bodyColor: '#cbd5e1',
-            padding: 10,
-          },
-        },
-      },
-    });
-
-    document.addEventListener('unitschange', (e) => {
-      const sys = (e as CustomEvent<{ sys: string }>).detail.sys;
-      chart.data.datasets[0].data = sys === 'metric' ? rawTemps.map(toC) : rawTemps;
-      (chart.data.datasets[0] as any).label = sys === 'metric' ? 'Temp (°C)' : 'Temp (°F)';
-      chart.update('none');
-      const lbl = document.getElementById('chart-temp-unit');
-      if (lbl) lbl.textContent = sys === 'metric' ? '°C' : '°F';
+    render();
+    let rt: number | undefined;
+    window.addEventListener('resize', () => { clearTimeout(rt); rt = window.setTimeout(render, 150); });
+    onUnitsChange(s => {
+      sys = s;
+      if (unitLabel) unitLabel.textContent = tUnit();
+      render();
     });
   }
 </script>
