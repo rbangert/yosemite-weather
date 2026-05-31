@@ -154,6 +154,7 @@ const nightRuns = computeNightRuns();
       // Panel descriptors, top→bottom. `draw` receives its absolute y offset.
       const panels: { label: string; h: number; draw: (top: number) => void }[] = [
         { label: 'Temperature', h: 130, draw: drawTemp },
+        { label: 'Surface Wind', h: 108, draw: drawWind },
       ];
 
       const plotBottom = panels.reduce((s, p) => s + p.h, 0);
@@ -231,6 +232,47 @@ const nightRuns = computeNightRuns();
         focus.push({ top, y, color: C.dew, data: dews });
       }
 
+      // ── Panel: Surface Wind (+ gust band, direction arrows) ─────────────────
+      function drawWind(top: number) {
+        const g = svg.append('g').attr('transform', `translate(0,${top})`);
+        title(g, `Surface Wind (${wUnit()})`);
+        const ct = TITLE_H, cb = 108 - 18; // reserve bottom strip for arrows
+        const winds = raw.map(r => wConv(r.wind));
+        const gusts = raw.map(r => wConv(r.gust));
+        const maxV = d3.max([...winds, ...gusts].filter((v): v is number => v != null)) ?? 10;
+        const y = d3.scaleLinear().domain([0, maxV]).nice().range([cb - PAD_B, ct + PAD_T]);
+        nightRects(g, ct, cb);
+        yAxis(g, y, v => `${v}`, C.wind, 3);
+        // gust range band (between wind and gust)
+        g.append('path').datum(gusts as any)
+          .attr('d', d3.area<number>()
+            .defined((_, i) => winds[i] != null && gusts[i] != null)
+            .x((_, i) => x(times[i])).y0((_, i) => y(winds[i]!)).y1((_, i) => y(gusts[i]!))
+            .curve(d3.curveMonotoneX) as any)
+          .attr('fill', 'rgba(80,250,123,0.12)');
+        // wind area + line
+        g.append('path').datum(winds as any).attr('d', mkArea(winds, y, cb - PAD_B) as any)
+          .attr('fill', 'rgba(80,250,123,0.18)');
+        g.append('path').datum(winds as any).attr('d', mkLine(winds, y) as any)
+          .attr('fill', 'none').attr('stroke', C.wind).attr('stroke-width', 1.5);
+        // gust dashed line
+        g.append('path').datum(gusts as any).attr('d', mkLine(gusts, y) as any)
+          .attr('fill', 'none').attr('stroke', 'rgba(80,250,123,0.5)').attr('stroke-width', 1).attr('stroke-dasharray', '4,3');
+        // direction arrows + cardinal labels (every 6th hour)
+        const ay = cb + 8, ly = cb + 16;
+        raw.forEach((r, i) => {
+          if (i % 6 !== 0 || r.dir == null) return;
+          const px = x(times[i]);
+          g.append('text').attr('x', px).attr('y', ay).attr('text-anchor', 'middle')
+            .attr('font-size', 11).attr('fill', 'rgba(80,250,123,0.7)')
+            .attr('transform', `rotate(${Math.round(r.dir + 180)}, ${px}, ${ay - 3})`).text('↑');
+          g.append('text').attr('x', px).attr('y', ly).attr('text-anchor', 'middle')
+            .attr('font-size', 8).attr('fill', '#6272A4').text(cardinal(r.dir));
+        });
+        focus.push({ top, y, color: C.wind, data: winds });
+        focus.push({ top, y, color: 'rgba(80,250,123,0.6)', data: gusts });
+      }
+
       // Draw panels in order, tracking cumulative offset.
       let top = 0;
       for (const p of panels) { p.draw(top); top += p.h; }
@@ -288,6 +330,8 @@ const nightRuns = computeNightRuns();
       if (r.temp != null) add(C.temp, 'Temp', `${tConv(r.temp)}${tUnit()}`);
       if (r.apparent != null) add(C.feels, 'Feels', `${tConv(r.apparent)}${tUnit()}`);
       if (r.dew != null) add(C.dew, 'Dew', `${tConv(r.dew)}${tUnit()}`);
+      if (r.wind != null) add(C.wind, 'Wind', `${wConv(r.wind)} ${wUnit()}${r.dir != null ? ' ' + cardinal(r.dir) : ''}`);
+      if (r.gust != null) add('rgba(80,250,123,0.6)', 'Gust', `${wConv(r.gust)} ${wUnit()}`);
 
       const title = times[i].toLocaleString('en-US', { weekday: 'short', hour: 'numeric', hour12: true });
       tip.innerHTML = `<div class="tip-title">${title}</div>${rowsHtml.join('')}`;
