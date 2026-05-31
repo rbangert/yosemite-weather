@@ -1,15 +1,16 @@
 ---
-import type { SnotelStation, SwePoint } from '../lib/api';
+import type { SnotelStation, SwePoint, SweAveragePoint } from '../lib/api';
 
 interface Props {
   station: SnotelStation;
   waterYears: Record<string, SwePoint[]>;
+  averages?: { '10': SweAveragePoint[]; '20': SweAveragePoint[] };
   height?: string;
   /** When true, skips the card wrapper and header — the parent owns layout. */
   bare?: boolean;
 }
 
-const { station, waterYears, height = 'h-80', bare = false } = Astro.props;
+const { station, waterYears, averages, height = 'h-80', bare = false } = Astro.props;
 
 const sortedYears = Object.keys(waterYears).map(Number).sort((a, b) => a - b);
 const currentYear = new Date().getMonth() >= 9
@@ -24,13 +25,19 @@ const chartData = Object.fromEntries(
   ])
 );
 
+// Averages keyed by window; each a [day, value] list (compact).
+const avgData = {
+  '10': (averages?.['10'] ?? []).map((p) => [p.day, p.value]),
+  '20': (averages?.['20'] ?? []).map((p) => [p.day, p.value]),
+};
+
 const hostId = `swe-chart-${station.station_id}`;
 ---
 
 {bare ? (
   <div class="flex h-full flex-col">
     <div class="relative min-h-0 flex-1">
-      <div id={hostId} class="swe-host absolute inset-0" data-swe={JSON.stringify(chartData)} data-current-wy={currentYear}></div>
+      <div id={hostId} class="swe-host absolute inset-0" data-swe={JSON.stringify(chartData)} data-averages={JSON.stringify(avgData)} data-current-wy={currentYear}></div>
     </div>
     <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 px-1" id={`${hostId}-legend`}></div>
   </div>
@@ -50,7 +57,7 @@ const hostId = `swe-chart-${station.station_id}`;
     </div>
 
     <div class={`relative ${height}`}>
-      <div id={hostId} class="swe-host absolute inset-0" data-swe={JSON.stringify(chartData)} data-current-wy={currentYear}></div>
+      <div id={hostId} class="swe-host absolute inset-0" data-swe={JSON.stringify(chartData)} data-averages={JSON.stringify(avgData)} data-current-wy={currentYear}></div>
     </div>
 
     <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1" id={`${hostId}-legend`}></div>
@@ -92,6 +99,12 @@ const hostId = `swe-chart-${station.station_id}`;
 
   type DayVal = { d: number; v: number | null; dt: string };
 
+  // Average lines (kept prominent, dotted). 10-yr = bright; 20-yr = muted slate.
+  const AVG_DEFS = [
+    { key: '10', color: '#F8F8F2', label: '10-yr avg' },
+    { key: '20', color: '#94a3b8', label: '20-yr avg' },
+  ] as const;
+
   document.querySelectorAll<HTMLDivElement>('.swe-host[data-swe]').forEach((host) => {
     const rawAttr = host.dataset.swe;
     if (!rawAttr) return;
@@ -110,6 +123,16 @@ const hostId = `swe-chart-${station.station_id}`;
       }
       rawByYear.set(wy, arr);
     }
+
+    // Average series → 366-day arrays.
+    const avgRaw: Record<string, [number, number][]> = JSON.parse(host.dataset.averages ?? '{}');
+    const avgByKey = new Map<string, (number | null)[]>();
+    for (const def of AVG_DEFS) {
+      const arr: (number | null)[] = new Array(DAYS).fill(null);
+      for (const [d, v] of avgRaw[def.key] ?? []) if (d >= 1 && d <= DAYS) arr[d - 1] = v;
+      avgByKey.set(def.key, arr);
+    }
+
     // Actual calendar date per day-of-water-year, for tooltip titles.
     const dateByDay = new Map<number, string>();
     for (const wy of years) {
@@ -128,24 +151,50 @@ const hostId = `swe-chart-${station.station_id}`;
 
     const M = { left: 36, right: 10, top: 8, bottom: 16 };
 
+    // Highlight state: up to two selected water years dim the rest.
+    let selected: number[] = [];
+    const yearPaths = new Map<number, d3.Selection<SVGPathElement, unknown, null, undefined>>();
+    const legendItems = new Map<number, HTMLElement>();
+
+    function applyHighlight() {
+      const has = selected.length > 0;
+      for (const [wy, path] of yearPaths) {
+        const sel = selected.includes(wy);
+        const base = wyStyle(wy, currentWy).width;
+        path.attr('opacity', !has || sel ? 1 : 0.1).attr('stroke-width', sel ? base + 1 : base);
+      }
+      for (const [wy, el] of legendItems) {
+        const sel = selected.includes(wy);
+        el.style.opacity = !has || sel ? '1' : '0.4';
+      }
+    }
+
+    function toggleYear(wy: number) {
+      const i = selected.indexOf(wy);
+      if (i >= 0) selected.splice(i, 1);
+      else { if (selected.length >= 2) selected.shift(); selected.push(wy); }
+      applyHighlight();
+    }
+
     function render() {
       const width = Math.max(280, host.clientWidth || 280);
       const heightPx = Math.max(160, host.clientHeight || 240);
       host.querySelectorAll('svg').forEach((n) => n.remove());
+      yearPaths.clear();
 
       const svg = d3.select(host).append('svg').attr('width', width).attr('height', heightPx);
       const x = d3.scaleLinear().domain([1, DAYS]).range([M.left, width - M.right]);
       const innerWidth = width - M.left - M.right;
       const plotBottom = heightPx - M.bottom;
 
-      // Display-unit series per year.
+      // Display-unit series per year + averages.
       const disp = new Map<number, (number | null)[]>();
       for (const wy of years) disp.set(wy, rawByYear.get(wy)!.map(toDisplay));
+      const avgDisp = AVG_DEFS.map((def) => ({ ...def, data: avgByKey.get(def.key)!.map(toDisplay) }));
       const allVals = years.flatMap((wy) => disp.get(wy)!.filter((v): v is number => v != null));
       const maxV = d3.max(allVals) ?? 1;
       const y = d3.scaleLinear().domain([0, maxV]).nice().range([plotBottom, M.top]);
 
-      // y-axis + faint gridlines (reused module helper).
       leftAxis(svg.append('g'), { y, fmt: (v) => sys === 'metric' ? `${v} cm` : `${v}"`, color: '#94a3b8', x0: M.left, innerWidth });
 
       // x month gridlines + labels.
@@ -156,43 +205,61 @@ const hostId = `swe-chart-${station.station_id}`;
         xg.append('text').attr('x', px + 2).attr('y', heightPx - 5).attr('fill', '#64748b').attr('font-size', 9).text(WY_MONTH_NAMES[idx]);
       });
 
-      // One line per year (years ascending → current drawn last, on top).
+      // One line per year (ascending → current on top). Spans CDEC gaps.
       const focus: FocusSeries[] = [];
       for (const wy of years) {
         const { color, width: lw } = wyStyle(wy, currentWy);
         const data = disp.get(wy)!;
-        // Span gaps: bridge the line across null/outage days (CDEC sensor holes)
-        // so a year's curve stays continuous, matching the previous behavior.
-        svg.append('path').attr('d', linePath(data, x, days, y, true) ?? '')
+        const path = svg.append('path').attr('d', linePath(data, x, days, y, true) ?? '')
           .attr('fill', 'none').attr('stroke', color).attr('stroke-width', lw);
+        yearPaths.set(wy, path);
         focus.push({ top: 0, y, color, data });
       }
 
-      // Shared cross-series hover: vertical guide + dots + multi-year tooltip.
+      // Average lines on top — dotted, always prominent (never dimmed).
+      for (const a of avgDisp) {
+        if (!a.data.some((v) => v != null)) continue;
+        svg.append('path').attr('d', linePath(a.data, x, days, y, true) ?? '')
+          .attr('fill', 'none').attr('stroke', a.color).attr('stroke-width', 2)
+          .attr('stroke-dasharray', '2,3').attr('stroke-linecap', 'round');
+        focus.push({ top: 0, y, color: a.color, data: a.data });
+      }
+
       attachHover(svg, {
         x, times: days, minX: M.left, maxX: width - M.right, plotBottom, focus,
-        onHover: (i, px) => showTip(i, px, disp),
+        onHover: (i, px) => showTip(i, px, disp, avgDisp),
         onLeave: () => { tip.style.display = 'none'; },
       });
+
+      applyHighlight(); // re-apply selection after a rebuild (resize / unit change)
     }
 
-    function showTip(i: number, px: number, disp: Map<number, (number | null)[]>) {
+    function showTip(
+      i: number, px: number,
+      disp: Map<number, (number | null)[]>,
+      avgDisp: { color: string; label: string; data: (number | null)[] }[],
+    ) {
       const day = days[i];
-      const rows = years
+      const unit = sys === 'metric' ? ' cm' : '"';
+      const yearRows = years
         .map((wy) => ({ wy, v: disp.get(wy)![i], color: wyStyle(wy, currentWy).color }))
         .filter((r): r is { wy: number; v: number; color: string } => r.v != null)
-        .sort((a, b) => b.v - a.v);
-      if (!rows.length) { tip.style.display = 'none'; return; }
+        .sort((a, b) => b.v - a.v)
+        .map((r) => {
+          const label = r.wy === currentWy ? `<strong>WY${r.wy}</strong>` : `WY${r.wy}`;
+          return `<div class="tip-row"><span><span class="tip-swatch" style="background:${r.color}"></span>${label}</span><span>${r.v.toFixed(1)}${unit}</span></div>`;
+        });
+      const avgRows = avgDisp
+        .map((a) => ({ a, v: a.data[i] }))
+        .filter((r): r is { a: typeof r.a; v: number } => r.v != null)
+        .map((r) => `<div class="tip-row" style="opacity:.85"><span><span class="tip-swatch" style="background:${r.a.color}"></span>${r.a.label}</span><span>${r.v.toFixed(1)}${unit}</span></div>`);
+      if (!yearRows.length && !avgRows.length) { tip.style.display = 'none'; return; }
 
       const dt = dateByDay.get(day);
       const title = dt
         ? new Date(dt + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
         : `Day ${day}`;
-      const unit = sys === 'metric' ? ' cm' : '"';
-      tip.innerHTML = `<div class="tip-title">${title}</div>` + rows.map((r) => {
-        const label = r.wy === currentWy ? `<strong>WY${r.wy}</strong>` : `WY${r.wy}`;
-        return `<div class="tip-row"><span><span class="tip-swatch" style="background:${r.color}"></span>${label}</span><span>${r.v.toFixed(1)}${unit}</span></div>`;
-      }).join('');
+      tip.innerHTML = `<div class="tip-title">${title}</div>${yearRows.join('')}${avgRows.join('')}`;
       tip.style.display = 'block';
 
       const hostW = host.clientWidth;
@@ -208,16 +275,29 @@ const hostId = `swe-chart-${station.station_id}`;
     window.addEventListener('resize', () => { clearTimeout(rt); rt = window.setTimeout(render, 150); });
     onUnitsChange((s) => { sys = s; render(); });
 
-    // Legend below the chart (newest first; current year bold), built once.
+    // Legend: averages (dotted, static) first, then years newest-first (clickable).
     const legendEl = document.getElementById(`${host.id}-legend`);
     if (legendEl) {
+      for (const def of AVG_DEFS) {
+        if (!(avgByKey.get(def.key) ?? []).some((v) => v != null)) continue;
+        const item = document.createElement('span');
+        item.className = 'flex items-center gap-1 text-xs';
+        item.style.color = '#94a3b8';
+        item.innerHTML = `<span style="display:inline-block;width:20px;height:0;border-top:2px dotted ${def.color};flex-shrink:0"></span>${def.label}`;
+        legendEl.appendChild(item);
+      }
       for (const wy of [...years].reverse()) {
         const { color } = wyStyle(wy, currentWy);
         const isCurrent = wy === currentWy;
-        const item = document.createElement('span');
-        item.className = 'flex items-center gap-1 text-xs';
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'flex items-center gap-1 text-xs transition-opacity';
         item.style.color = isCurrent ? '#F8F8F2' : '#6272A4';
+        item.style.cursor = 'pointer';
+        item.title = 'Click to focus this year (up to 2)';
         item.innerHTML = `<span style="display:inline-block;width:20px;height:2px;background:${color};border-radius:1px;flex-shrink:0"></span>${isCurrent ? `<strong>WY${wy}</strong>` : `WY${wy}`}`;
+        item.addEventListener('click', () => toggleYear(wy));
+        legendItems.set(wy, item);
         legendEl.appendChild(item);
       }
     }

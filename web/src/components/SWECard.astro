@@ -25,7 +25,7 @@ const height = compact ? 'h-64' : 'h-80';
 ---
 
 {data && hasData ? (
-  <SWEChart station={data.station} waterYears={data.waterYears} height={height} />
+  <SWEChart station={data.station} waterYears={data.waterYears} averages={data.averages} height={height} />
 ) : data && !hasData ? (
   <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
     <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">Snow Water Equivalent</h2>

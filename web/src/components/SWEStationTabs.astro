@@ -73,7 +73,7 @@ const hasData = responses.some((r) => Object.keys(r.waterYears).length > 0);
           ]}
           data-panel-id={r.station.station_id}
         >
-          <SWEChart station={r.station} waterYears={r.waterYears} bare={true} />
+          <SWEChart station={r.station} waterYears={r.waterYears} averages={r.averages} bare={true} />
         </div>
       ))}
     </div>
