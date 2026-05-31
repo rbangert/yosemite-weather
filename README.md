@@ -8,8 +8,9 @@ and serves the data over a REST API backed by SQLite; an Astro frontend (in
 
 For each configured point the backend collects:
 
-- **Forecasts** — NWS gridpoint hourly forecast (temperature, wind, gusts, precip
-  probability, humidity, snowfall, snow level, sky cover). Available for every point.
+- **Forecasts** — NWS gridpoint hourly forecast (temperature, dewpoint, apparent
+  temperature, wind, gusts, precip probability, thunder probability, humidity, snowfall,
+  snow level, sky cover). Available for every point.
 - **Period forecasts** — NWS 7-day outlook broken into 12-hour day/night periods with
   text description, temperature, wind, and condition icon.
 - **Observations** — latest measured conditions from the nearest NWS station or
@@ -201,10 +202,13 @@ erDiagram
         text valid_time "UTC hour"
         text fetched_at
         real air_temp
+        real apparent_temp
+        real dewpoint
         real wind_speed
         real wind_gust
         real wind_direction
         real precip_prob
+        real thunder_prob
         real relative_humidity
         real snowfall_amount
         real snow_level
@@ -292,9 +296,12 @@ Hourly NWS gridpoint forecast. One row per `(point, hour)`. Polling **upserts** 
 | `valid_time` | TEXT | ISO 8601 hour the forecast is for (UTC) |
 | `fetched_at` | TEXT | ISO timestamp the row was last written |
 | `air_temp` | REAL | °F |
+| `apparent_temp` | REAL | °F (heat index / wind chill) |
+| `dewpoint` | REAL | °F |
 | `wind_speed` / `wind_gust` | REAL | mph |
 | `wind_direction` | REAL | degrees |
 | `precip_prob` | REAL | % |
+| `thunder_prob` | REAL | % |
 | `relative_humidity` | REAL | % |
 | `snowfall_amount` | REAL | inches (this hour) |
 | `snow_level` | REAL | feet |
@@ -431,6 +438,21 @@ appropriate `wi-day-*` / `wi-night-*` class in `web/src/lib/nwsIcons.ts`. Sun an
 moon data (rise/set times, phase, illumination) is computed server-side via
 [suncalc](https://github.com/mourner/suncalc).
 
+### Charts
+
+Area dashboards include an **hourly Meteogram**: an NWS-style 5-panel graph
+(temperature / dewpoint / feels-like, surface wind + gust + direction, sky cover,
+precipitation potential + thunder, relative humidity) with day/night shading from
+sunrise/sunset, a "now" marker, reference lines (freezing, fire-weather dry-air), and
+a synced cross-panel hover. It exists in two implementations behind tabs:
+[`MeteogramD3.astro`](web/src/components/MeteogramD3.astro) ([D3](https://d3js.org), a
+single stacked SVG) and [`Meteogram.astro`](web/src/components/Meteogram.astro)
+([Chart.js](https://www.chartjs.org)).
+
+Charting is **migrating from Chart.js to D3** — the meteogram is the first piece, and the
+remaining charts (location-detail temp/precip, snowpack SWE, the data explorer) follow.
+See [`docs/d3-migration.md`](docs/d3-migration.md) for the plan.
+
 ### Pages
 
 | Route | File | Shows |
@@ -441,11 +463,11 @@ moon data (rise/set times, phase, illumination) is computed server-side via
 | `/snowpack` | `src/pages/snowpack.astro` | NRCS SNOTEL station SWE — multi-year water-year comparison charts (CDEC data) |
 | `/data` | `src/pages/data.astro` | Data explorer — Chart.js panels for all DB variables, coverage grid |
 
-Each area dashboard shows: a summary card (representative-point conditions), a
-deduplicated current-conditions table grouped by NWS station, a 7-day period
-forecast, and a Sun & Moon card. The homepage (`/`) renders the Valley & West
-dashboard directly; South and High Country live at `/areas/south` and
-`/areas/high-country`.
+Each area dashboard shows: a summary card (representative-point conditions), a tabbed
+forecast (7-day periods, an hourly graph, and the D3/Chart.js Meteograms), a
+deduplicated current-conditions table grouped by NWS station, and a Sun & Moon card.
+The homepage (`/`) renders the Valley & West dashboard directly; South and High Country
+live at `/areas/south` and `/areas/high-country`.
 
 An `AlertsBanner` component renders collapsible, severity-coded alert cards below
 the nav on every page. It renders nothing when no alerts are active.
@@ -469,6 +491,8 @@ to load data. Other scripts: `bun run build` (production build), `bun run check`
 
 ```
 .
+├── docs/
+│   └── d3-migration.md     # Chart.js → D3 charting migration roadmap
 ├── src/                    # Backend (Bun)
 │   ├── index.ts            # Entry point — starts API + polling loop
 │   ├── config/
@@ -491,7 +515,11 @@ to load data. Other scripts: `bun run build` (production build), `bun run check`
     └── src/
         ├── components/
         │   ├── AlertsBanner.astro   # Severity-coded NWS alert cards
-        │   ├── ForecastChart.astro  # Chart.js temp + precip island
+        │   ├── ForecastTabs.astro   # 7-Day / Hourly / Meteogram / Meteogram D3 tab shell
+        │   ├── MeteogramD3.astro    # D3 5-panel hourly meteogram (single stacked SVG)
+        │   ├── Meteogram.astro      # Chart.js 5-panel hourly meteogram (superseded by D3)
+        │   ├── HourlyGraph.astro    # Chart.js condensed 4-panel hourly graph (superseded)
+        │   ├── ForecastChart.astro  # Chart.js temp + precip island (detail page)
         │   ├── ObsTable.astro       # Current conditions table (deduplicated by station)
         │   ├── PeriodForecast.astro # 7-day day/night period table with weather icons
         │   ├── SummaryCard.astro    # Area summary (conditions + notable weather)
@@ -545,6 +573,7 @@ adapted for Yosemite. Milestones are ordered roughly by priority; checked items 
 - [x] Weather condition icons — NWS icon slugs mapped to weather-icons font (`wi-day-*` / `wi-night-*`) with semantic Tailwind colors
 - [x] 7-day extended forecast — 12-hour day/night periods from NWS `/forecast` endpoint with weather icons, color-coded temperature, wind direction icons, and precip _(ccweather: 7-day forecast)_
 - [x] 7-day period forecast on area overview pages
+- [x] Hourly Meteogram — NWS-style 5-panel graph (temp/dewpoint/feels-like, wind + gust + direction, sky cover, precip + thunder, humidity) with day/night shading, "now" marker, freezing & dry-air reference lines, and synced cross-panel hover. Built in both D3 (`MeteogramD3`) and Chart.js (`Meteogram`) _(ccweather: hourly graph)_
 
 #### Milestone 4 — Alerts & conditions
 
@@ -556,9 +585,10 @@ adapted for Yosemite. Milestones are ordered roughly by priority; checked items 
 #### Milestone 3 — Richer forecast UI (continued)
 
 - [ ] Timeframe tabs on the detail page (24h / 48h / 72h) _(ccweather: tabbed forecast nav)_
-- [ ] Additional chart series — wind & gusts, humidity, sky cover, snow level (toggleable)
-- [ ] Wind direction compass / barbs
+- [x] Additional chart series — wind & gusts, humidity, sky cover delivered by the hourly Meteogram (snow level still pending)
+- [x] Wind direction indicators — rotated arrows + compass labels in the Meteogram wind panel
 - [x] Unit toggle (°F/°C, mph/km/h, in/mm) — client-side toggle in nav, persisted in localStorage
+- [ ] Migrate charting from Chart.js to D3 — meteogram done; detail chart, SWE, and data explorer pending. See [`docs/d3-migration.md`](docs/d3-migration.md)
 - [ ] WBGT (wet bulb globe temperature / heat stress) indicator on detail page — available from NWS raw gridpoint
 
 #### Milestone 5 — Snow & avalanche
@@ -597,6 +627,6 @@ adapted for Yosemite. Milestones are ordered roughly by priority; checked items 
 - [x] NWS active-alerts polling + passthrough endpoint (weather zone CAZ324 + fire weather zone CAZ592).
 - [x] 7-day period forecast polling + endpoint (`GET /api/points/:slug/forecast/periods`).
 - [ ] SNOTEL ingestion — snow depth & snow water equivalent (feeds Milestone 4).
+- [x] Apparent temperature (feels-like), dewpoint, and thunder probability from the NWS raw gridpoint — added to the `forecasts` table.
 - [ ] WBGT field ingestion from NWS raw gridpoint — extend forecasts table.
 - [ ] Fire weather text product ingestion — FWF/AFD from NWS `/products` endpoint.
-- [ ] Apparent temperature (feels-like) from NWS raw gridpoint — extend forecasts table.
