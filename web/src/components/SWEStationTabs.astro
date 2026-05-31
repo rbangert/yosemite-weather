@@ -61,7 +61,7 @@ const hasData = responses.some((r) => Object.keys(r.waterYears).length > 0);
       ))}
     </div>
 
-    <!-- Chart panels — all in DOM at once so Chart.js can initialise them all -->
+    <!-- Chart panels — all in DOM at once (hidden via opacity) so every D3 chart sizes at init -->
     <div class="relative p-4" style="height: 380px;">
       {responses.map((r, i) => (
         <div
