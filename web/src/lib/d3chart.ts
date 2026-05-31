@@ -54,8 +54,9 @@ export function halfStep(x: d3.ScaleTime<number, number>, times: Date[]): number
   return (x(times[1]) - x(times[0])) / 2;
 }
 
-/** Smooth line path 'd' string for a value series, skipping null gaps. */
-export function linePath(arr: Series, x: any, times: Date[], y: any): string | null {
+/** Smooth line path 'd' string for a value series, skipping null gaps.
+ *  `times` is the x-domain values (Dates for the meteogram, day numbers for SWE). */
+export function linePath(arr: Series, x: any, times: any[], y: any): string | null {
   return d3.line<number>()
     .defined((_, i) => arr[i] != null)
     .x((_, i) => x(times[i])).y((_, i) => y(arr[i]!))
@@ -63,7 +64,7 @@ export function linePath(arr: Series, x: any, times: Date[], y: any): string | n
 }
 
 /** Filled area from a baseline up to a value series. */
-export function areaPath(arr: Series, x: any, times: Date[], y: any, y0: number): string | null {
+export function areaPath(arr: Series, x: any, times: any[], y: any, y0: number): string | null {
   return d3.area<number>()
     .defined((_, i) => arr[i] != null)
     .x((_, i) => x(times[i])).y0(y0).y1((_, i) => y(arr[i]!))
@@ -71,7 +72,7 @@ export function areaPath(arr: Series, x: any, times: Date[], y: any, y0: number)
 }
 
 /** Filled band between two value series (e.g. wind→gust range). */
-export function bandPath(lower: Series, upper: Series, x: any, times: Date[], y: any): string | null {
+export function bandPath(lower: Series, upper: Series, x: any, times: any[], y: any): string | null {
   return d3.area<number>()
     .defined((_, i) => lower[i] != null && upper[i] != null)
     .x((_, i) => x(times[i])).y0((_, i) => y(lower[i]!)).y1((_, i) => y(upper[i]!))
@@ -158,7 +159,7 @@ export interface FocusSeries { top: number; y: any; color: string; data: Series;
  * full plot height so a single overlay drives every stacked panel.
  */
 export function attachHover(svg: any, o: {
-  x: any; times: Date[]; minX: number; maxX: number; plotBottom: number;
+  x: any; times: any[]; minX: number; maxX: number; plotBottom: number;
   focus: FocusSeries[]; onHover: (i: number, px: number) => void; onLeave: () => void;
 }): void {
   const hoverLine = svg.append('line').attr('y1', 0).attr('y2', o.plotBottom)

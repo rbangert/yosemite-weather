@@ -24,15 +24,15 @@ const chartData = Object.fromEntries(
   ])
 );
 
-const canvasId = `swe-chart-${station.station_id}`;
+const hostId = `swe-chart-${station.station_id}`;
 ---
 
 {bare ? (
   <div class="flex h-full flex-col">
     <div class="relative min-h-0 flex-1">
-      <canvas id={canvasId} data-swe={JSON.stringify(chartData)} data-current-wy={currentYear}></canvas>
+      <div id={hostId} class="swe-host absolute inset-0" data-swe={JSON.stringify(chartData)} data-current-wy={currentYear}></div>
     </div>
-    <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 px-1" id={`${canvasId}-legend`}></div>
+    <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 px-1" id={`${hostId}-legend`}></div>
   </div>
 ) : (
   <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
@@ -50,187 +50,167 @@ const canvasId = `swe-chart-${station.station_id}`;
     </div>
 
     <div class={`relative ${height}`}>
-      <canvas id={canvasId} data-swe={JSON.stringify(chartData)} data-current-wy={currentYear}></canvas>
+      <div id={hostId} class="swe-host absolute inset-0" data-swe={JSON.stringify(chartData)} data-current-wy={currentYear}></div>
     </div>
 
-    <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1" id={`${canvasId}-legend`}></div>
+    <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1" id={`${hostId}-legend`}></div>
   </div>
 )}
 
+<style is:global>
+  .swe-host svg { display: block; }
+  .swe-tip {
+    position: absolute; pointer-events: none; z-index: 20; display: none;
+    background: #282A36; border: 1px solid #44475A; border-radius: 6px;
+    padding: 6px 8px; font-size: 11px; color: #F8F8F2; white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  .swe-tip .tip-title { color: #6272A4; font-weight: 600; margin-bottom: 3px; }
+  .swe-tip .tip-row { display: flex; gap: 10px; justify-content: space-between; }
+  .swe-tip .tip-swatch { display: inline-block; width: 14px; height: 2px; border-radius: 1px; margin-right: 5px; vertical-align: middle; }
+</style>
+
 <script>
+  import * as d3 from 'd3';
   import {
-    Chart,
-    LineController,
-    LineElement,
-    PointElement,
-    LinearScale,
-    CategoryScale,
-    Tooltip,
-    Filler,
-  } from 'chart.js';
+    DRACULA, ACCENTS, CHART, leftAxis, attachHover,
+    linePath, currentUnitSystem, onUnitsChange, type FocusSeries,
+  } from '../lib/d3chart';
 
-  Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Filler);
-
-  // Month label positions within a 366-day water year.
+  // Month label positions within a 366-day water year (day 1 = Oct 1).
   const WY_MONTH_STARTS = [1, 32, 63, 93, 124, 154, 185, 213, 244, 274, 305, 335];
   const WY_MONTH_NAMES  = ['Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep'];
+  const DAYS = 366;
 
-  // Dracula theme accent colors (https://draculatheme.com/spec), cycled across years.
-  // Current WY uses Cyan (most distinctive); older years step through the palette
-  // and fade toward the muted Comment color (#6272A4) at reduced opacity.
-  const DRACULA_ACCENTS = [
-    '#8BE9FD', // Cyan    — current year (age 0)
-    '#FF79C6', // Pink    — age 1
-    '#50FA7B', // Green   — age 2
-    '#BD93F9', // Purple  — age 3
-    '#FFB86C', // Orange  — age 4
-    '#F1FA8C', // Yellow  — age 5
-    '#FF5555', // Red     — age 6
-  ];
-
-  function wyColor(wy: number, currentWy: number, _total: number): { color: string; width: number } {
-    const age = currentWy - wy; // 0 = current, 1 = last year, etc.
-    if (age < DRACULA_ACCENTS.length) {
-      return { color: DRACULA_ACCENTS[age], width: age === 0 ? 2.5 : 1.5 };
-    }
-    // Ages 7+ use the Dracula Comment color, cycling through accents at low opacity.
-    return { color: '#6272A4', width: 1 };
+  // Current water year = Cyan (most distinctive); older years step through the
+  // Dracula accents, then fade to the muted Comment color.
+  function wyStyle(wy: number, currentWy: number): { color: string; width: number } {
+    const age = currentWy - wy; // 0 = current, 1 = last year, …
+    if (age >= 0 && age < ACCENTS.length) return { color: ACCENTS[age], width: age === 0 ? 2.5 : 1.5 };
+    return { color: DRACULA.comment, width: 1 };
   }
 
-  // Generate x-axis labels for all 366 days, showing month name only at the first day of each month.
-  function buildLabels(): string[] {
-    const labels: string[] = new Array(367).fill('');
-    for (let i = 0; i < WY_MONTH_STARTS.length; i++) {
-      labels[WY_MONTH_STARTS[i]] = WY_MONTH_NAMES[i];
-    }
-    return labels;
-  }
+  type DayVal = { d: number; v: number | null; dt: string };
 
-  document.querySelectorAll<HTMLCanvasElement>('canvas[data-swe]').forEach((canvas) => {
-    const raw = canvas.dataset.swe;
-    const currentWy = Number(canvas.dataset.currentWy ?? new Date().getFullYear());
-    if (!raw) return;
-
-    type DayVal = { d: number; v: number | null; dt: string };
-    const chartData: Record<string, DayVal[]> = JSON.parse(raw);
+  document.querySelectorAll<HTMLDivElement>('.swe-host[data-swe]').forEach((host) => {
+    const rawAttr = host.dataset.swe;
+    if (!rawAttr) return;
+    const currentWy = Number(host.dataset.currentWy ?? new Date().getFullYear());
+    const chartData: Record<string, DayVal[]> = JSON.parse(rawAttr);
     const years = Object.keys(chartData).map(Number).sort((a, b) => a - b);
     if (years.length === 0) return;
 
-    // Build raw inch arrays (negatives and values > 90" are CDEC sensor noise).
+    // Day index arrays (index k → day k+1). CDEC noise (negatives, > 90") dropped.
+    const days = Array.from({ length: DAYS }, (_, k) => k + 1);
     const rawByYear = new Map<number, (number | null)[]>();
     for (const wy of years) {
-      const arr: (number | null)[] = new Array(367).fill(null);
+      const arr: (number | null)[] = new Array(DAYS).fill(null);
       for (const { d, v } of chartData[wy] ?? []) {
-        if (d >= 1 && d <= 366) arr[d] = (v != null && v >= 0 && v <= 90) ? v : null;
+        if (d >= 1 && d <= DAYS) arr[d - 1] = (v != null && v >= 0 && v <= 90) ? v : null;
       }
       rawByYear.set(wy, arr);
     }
+    // Actual calendar date per day-of-water-year, for tooltip titles.
+    const dateByDay = new Map<number, string>();
+    for (const wy of years) {
+      for (const { d, dt } of chartData[wy] ?? []) {
+        if (dt && !dateByDay.has(d)) dateByDay.set(d, dt);
+      }
+    }
 
-    let sys = localStorage.getItem('units') ?? 'imperial';
+    let sys = currentUnitSystem();
     const toDisplay = (v: number | null) =>
       v != null ? (sys === 'metric' ? +(v * 2.54).toFixed(2) : v) : null;
 
-    const labels = buildLabels();
+    const tip = document.createElement('div');
+    tip.className = 'swe-tip';
+    host.appendChild(tip);
 
-    const datasets = years.map((wy) => {
-      const { color, width } = wyColor(wy, currentWy, years.length);
-      return {
-        label: `WY${wy}`,
-        data: rawByYear.get(wy)!.map(toDisplay),
-        borderColor: color,
-        backgroundColor: 'transparent',
-        borderWidth: width,
-        pointRadius: 0,
-        pointHoverRadius: wy === currentWy ? 4 : 3,
-        pointStyle: 'line',
-        tension: 0.2,
-        spanGaps: true,
-        order: currentWy - wy,
-      };
-    });
+    const M = { left: 36, right: 10, top: 8, bottom: 16 };
 
-    datasets.sort((a, b) => b.order - a.order);
+    function render() {
+      const width = Math.max(280, host.clientWidth || 280);
+      const heightPx = Math.max(160, host.clientHeight || 240);
+      host.querySelectorAll('svg').forEach((n) => n.remove());
 
-    const chart = new Chart(canvas, {
-      type: 'line',
-      data: { labels, datasets },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        interaction: { mode: 'index', intersect: false },
-        scales: {
-          x: {
-            grid: { color: 'rgba(148, 163, 184, 0.07)' },
-            ticks: {
-              color: '#64748b',
-              autoSkip: false,
-              maxRotation: 0,
-              callback: (_val, index) => labels[index] || null,
-            },
-          },
-          y: {
-            min: 0,
-            grid: { color: 'rgba(148, 163, 184, 0.07)' },
-            ticks: { color: '#94a3b8', callback: (v) => sys === 'metric' ? `${v} cm` : `${v}"` },
-            title: { display: false },
-          },
-        },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            backgroundColor: '#282A36',
-            borderColor: '#44475A',
-            borderWidth: 1,
-            titleColor: '#6272A4',
-            bodyColor: '#F8F8F2',
-            padding: 10,
-            boxWidth: 20,
-            boxHeight: 2,
-            itemSort: (a, b) => (b.raw as number ?? 0) - (a.raw as number ?? 0),
-            callbacks: {
-              labelColor: (item) => {
-                const c = (item.dataset.borderColor as string) ?? '#6272A4';
-                return { borderColor: c, backgroundColor: c, borderWidth: 0, borderRadius: 1 };
-              },
-              title: (items) => {
-                const idx = items[0]?.dataIndex ?? 0;
-                for (const pts of Object.values(chartData as Record<string, DayVal[]>)) {
-                  const p = pts.find((x) => x.d === idx);
-                  if (p?.dt) {
-                    const d = new Date(p.dt + 'T12:00:00');
-                    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                  }
-                }
-                return labels[idx] ? `Day ${idx}` : '';
-              },
-              label: (item) => {
-                const v = item.raw as number | null;
-                if (v == null) return null as unknown as string;
-                return sys === 'metric'
-                  ? ` ${item.dataset.label}: ${v.toFixed(1)} cm`
-                  : ` ${item.dataset.label}: ${v.toFixed(1)}"`;
-              },
-            },
-          },
-        },
-      },
-    });
+      const svg = d3.select(host).append('svg').attr('width', width).attr('height', heightPx);
+      const x = d3.scaleLinear().domain([1, DAYS]).range([M.left, width - M.right]);
+      const innerWidth = width - M.left - M.right;
+      const plotBottom = heightPx - M.bottom;
 
-    document.addEventListener('unitschange', (e) => {
-      sys = (e as CustomEvent<{ sys: string }>).detail.sys;
+      // Display-unit series per year.
+      const disp = new Map<number, (number | null)[]>();
+      for (const wy of years) disp.set(wy, rawByYear.get(wy)!.map(toDisplay));
+      const allVals = years.flatMap((wy) => disp.get(wy)!.filter((v): v is number => v != null));
+      const maxV = d3.max(allVals) ?? 1;
+      const y = d3.scaleLinear().domain([0, maxV]).nice().range([plotBottom, M.top]);
+
+      // y-axis + faint gridlines (reused module helper).
+      leftAxis(svg.append('g'), { y, fmt: (v) => sys === 'metric' ? `${v} cm` : `${v}"`, color: '#94a3b8', x0: M.left, innerWidth });
+
+      // x month gridlines + labels.
+      const xg = svg.append('g');
+      WY_MONTH_STARTS.forEach((startDay, idx) => {
+        const px = x(startDay);
+        xg.append('line').attr('x1', px).attr('x2', px).attr('y1', M.top).attr('y2', plotBottom).attr('stroke', CHART.grid);
+        xg.append('text').attr('x', px + 2).attr('y', heightPx - 5).attr('fill', '#64748b').attr('font-size', 9).text(WY_MONTH_NAMES[idx]);
+      });
+
+      // One line per year (years ascending → current drawn last, on top).
+      const focus: FocusSeries[] = [];
       for (const wy of years) {
-        const ds = chart.data.datasets.find(d => d.label === `WY${wy}`);
-        if (ds) (ds as any).data = rawByYear.get(wy)!.map(toDisplay);
+        const { color, width: lw } = wyStyle(wy, currentWy);
+        const data = disp.get(wy)!;
+        svg.append('path').attr('d', linePath(data, x, days, y) ?? '')
+          .attr('fill', 'none').attr('stroke', color).attr('stroke-width', lw);
+        focus.push({ top: 0, y, color, data });
       }
-      chart.update('none');
-    });
 
-    // Build legend below chart using Dracula foreground/comment colors.
-    const legendEl = document.getElementById(`${canvas.id}-legend`);
+      // Shared cross-series hover: vertical guide + dots + multi-year tooltip.
+      attachHover(svg, {
+        x, times: days, minX: M.left, maxX: width - M.right, plotBottom, focus,
+        onHover: (i, px) => showTip(i, px, disp),
+        onLeave: () => { tip.style.display = 'none'; },
+      });
+    }
+
+    function showTip(i: number, px: number, disp: Map<number, (number | null)[]>) {
+      const day = days[i];
+      const rows = years
+        .map((wy) => ({ wy, v: disp.get(wy)![i], color: wyStyle(wy, currentWy).color }))
+        .filter((r): r is { wy: number; v: number; color: string } => r.v != null)
+        .sort((a, b) => b.v - a.v);
+      if (!rows.length) { tip.style.display = 'none'; return; }
+
+      const dt = dateByDay.get(day);
+      const title = dt
+        ? new Date(dt + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+        : `Day ${day}`;
+      const unit = sys === 'metric' ? ' cm' : '"';
+      tip.innerHTML = `<div class="tip-title">${title}</div>` + rows.map((r) => {
+        const label = r.wy === currentWy ? `<strong>WY${r.wy}</strong>` : `WY${r.wy}`;
+        return `<div class="tip-row"><span><span class="tip-swatch" style="background:${r.color}"></span>${label}</span><span>${r.v.toFixed(1)}${unit}</span></div>`;
+      }).join('');
+      tip.style.display = 'block';
+
+      const hostW = host.clientWidth;
+      const tw = tip.offsetWidth;
+      let left = px + 12;
+      if (left + tw > hostW) left = px - tw - 12;
+      tip.style.left = `${Math.max(0, left)}px`;
+      tip.style.top = '4px';
+    }
+
+    render();
+    let rt: number | undefined;
+    window.addEventListener('resize', () => { clearTimeout(rt); rt = window.setTimeout(render, 150); });
+    onUnitsChange((s) => { sys = s; render(); });
+
+    // Legend below the chart (newest first; current year bold), built once.
+    const legendEl = document.getElementById(`${host.id}-legend`);
     if (legendEl) {
       for (const wy of [...years].reverse()) {
-        const { color } = wyColor(wy, currentWy, years.length);
+        const { color } = wyStyle(wy, currentWy);
         const isCurrent = wy === currentWy;
         const item = document.createElement('span');
         item.className = 'flex items-center gap-1 text-xs';
