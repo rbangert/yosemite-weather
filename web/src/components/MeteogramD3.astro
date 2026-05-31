@@ -155,6 +155,9 @@ const nightRuns = computeNightRuns();
       const panels: { label: string; h: number; draw: (top: number) => void }[] = [
         { label: 'Temperature', h: 130, draw: drawTemp },
         { label: 'Surface Wind', h: 108, draw: drawWind },
+        { label: 'Sky Cover', h: 64, draw: drawSky },
+        { label: 'Precipitation Potential', h: 80, draw: drawPrecip },
+        { label: 'Relative Humidity', h: 92, draw: drawRH },
       ];
 
       const plotBottom = panels.reduce((s, p) => s + p.h, 0);
@@ -273,6 +276,63 @@ const nightRuns = computeNightRuns();
         focus.push({ top, y, color: 'rgba(80,250,123,0.6)', data: gusts });
       }
 
+      // ── Panel: Sky Cover (filled % area) ────────────────────────────────────
+      function drawSky(top: number) {
+        const g = svg.append('g').attr('transform', `translate(0,${top})`);
+        title(g, 'Sky Cover');
+        const ct = TITLE_H, cb = 64;
+        const sky = raw.map(r => r.sky);
+        const y = d3.scaleLinear().domain([0, 100]).range([cb - PAD_B, ct + PAD_T]);
+        nightRects(g, ct, cb);
+        yAxis(g, y, v => `${v}%`, C.sky, 3);
+        g.append('path').datum(sky as any).attr('d', mkArea(sky, y, cb - PAD_B) as any)
+          .attr('fill', 'rgba(98,114,164,0.35)');
+        g.append('path').datum(sky as any).attr('d', mkLine(sky, y) as any)
+          .attr('fill', 'none').attr('stroke', C.sky).attr('stroke-width', 1.5);
+        focus.push({ top, y, color: C.sky, data: sky });
+      }
+
+      // ── Panel: Precipitation Potential (+ thunder overlay) ──────────────────
+      function drawPrecip(top: number) {
+        const g = svg.append('g').attr('transform', `translate(0,${top})`);
+        title(g, 'Precipitation Potential');
+        const ct = TITLE_H, cb = 80;
+        const y = d3.scaleLinear().domain([0, 100]).range([cb - PAD_B, ct + PAD_T]);
+        const baseline = y(0);
+        nightRects(g, ct, cb);
+        yAxis(g, y, v => `${v}%`, C.precip, 3);
+        // POP bars (full-width, reads as a probability area)
+        const barW = Math.max(1, half * 1.7);
+        raw.forEach((r, i) => {
+          if (r.precip == null || r.precip <= 0) return;
+          g.append('rect').attr('x', x(times[i]) - barW / 2).attr('y', y(r.precip))
+            .attr('width', barW).attr('height', baseline - y(r.precip))
+            .attr('fill', 'rgba(139,233,253,0.40)');
+        });
+        // thunder line overlay
+        const thunder = raw.map(r => r.thunder);
+        g.append('path').datum(thunder as any).attr('d', mkLine(thunder, y) as any)
+          .attr('fill', 'none').attr('stroke', C.thunder).attr('stroke-width', 1.5);
+        focus.push({ top, y, color: C.thunder, data: thunder });
+      }
+
+      // ── Panel: Relative Humidity (bottom; dry-air reference) ────────────────
+      function drawRH(top: number) {
+        const g = svg.append('g').attr('transform', `translate(0,${top})`);
+        title(g, 'Relative Humidity');
+        const ct = TITLE_H, cb = 92;
+        const rh = raw.map(r => r.rh);
+        const y = d3.scaleLinear().domain([0, 100]).range([cb - PAD_B, ct + PAD_T]);
+        nightRects(g, ct, cb);
+        yAxis(g, y, v => `${v}%`, C.rh, 3);
+        refLine(g, y, 15, 'rgba(255,184,108,0.28)', '15% dry');
+        g.append('path').datum(rh as any).attr('d', mkArea(rh, y, cb - PAD_B) as any)
+          .attr('fill', 'rgba(189,147,249,0.15)');
+        g.append('path').datum(rh as any).attr('d', mkLine(rh, y) as any)
+          .attr('fill', 'none').attr('stroke', C.rh).attr('stroke-width', 1.5);
+        focus.push({ top, y, color: C.rh, data: rh });
+      }
+
       // Draw panels in order, tracking cumulative offset.
       let top = 0;
       for (const p of panels) { p.draw(top); top += p.h; }
@@ -330,8 +390,12 @@ const nightRuns = computeNightRuns();
       if (r.temp != null) add(C.temp, 'Temp', `${tConv(r.temp)}${tUnit()}`);
       if (r.apparent != null) add(C.feels, 'Feels', `${tConv(r.apparent)}${tUnit()}`);
       if (r.dew != null) add(C.dew, 'Dew', `${tConv(r.dew)}${tUnit()}`);
-      if (r.wind != null) add(C.wind, 'Wind', `${wConv(r.wind)} ${wUnit()}${r.dir != null ? ' ' + cardinal(r.dir) : ''}`);
-      if (r.gust != null) add('rgba(80,250,123,0.6)', 'Gust', `${wConv(r.gust)} ${wUnit()}`);
+      if (r.wind != null) add(C.wind, 'Wind', `${Math.round(wConv(r.wind)!)} ${wUnit()}${r.dir != null ? ' ' + cardinal(r.dir) : ''}`);
+      if (r.gust != null) add('rgba(80,250,123,0.6)', 'Gust', `${Math.round(wConv(r.gust)!)} ${wUnit()}`);
+      if (r.sky != null) add(C.sky, 'Sky', `${Math.round(r.sky)}%`);
+      if (r.precip != null && r.precip > 0) add(C.precip, 'Precip', `${Math.round(r.precip)}%`);
+      if (r.thunder != null && r.thunder > 0) add(C.thunder, 'Thunder', `${Math.round(r.thunder)}%`);
+      if (r.rh != null) add(C.rh, 'Humidity', `${Math.round(r.rh)}%`);
 
       const title = times[i].toLocaleString('en-US', { weekday: 'short', hour: 'numeric', hour12: true });
       tip.innerHTML = `<div class="tip-title">${title}</div>${rowsHtml.join('')}`;
