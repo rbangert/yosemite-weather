@@ -161,7 +161,9 @@ const hostId = `swe-chart-${station.station_id}`;
       for (const wy of years) {
         const { color, width: lw } = wyStyle(wy, currentWy);
         const data = disp.get(wy)!;
-        svg.append('path').attr('d', linePath(data, x, days, y) ?? '')
+        // Span gaps: bridge the line across null/outage days (CDEC sensor holes)
+        // so a year's curve stays continuous, matching the previous behavior.
+        svg.append('path').attr('d', linePath(data, x, days, y, true) ?? '')
           .attr('fill', 'none').attr('stroke', color).attr('stroke-width', lw);
         focus.push({ top: 0, y, color, data });
       }

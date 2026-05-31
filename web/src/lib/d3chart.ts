@@ -54,9 +54,17 @@ export function halfStep(x: d3.ScaleTime<number, number>, times: Date[]): number
   return (x(times[1]) - x(times[0])) / 2;
 }
 
-/** Smooth line path 'd' string for a value series, skipping null gaps.
- *  `times` is the x-domain values (Dates for the meteogram, day numbers for SWE). */
-export function linePath(arr: Series, x: any, times: any[], y: any): string | null {
+/** Smooth line path 'd' string for a value series.
+ *  `times` is the x-domain values (Dates for the meteogram, day numbers for SWE).
+ *  By default the line breaks at null gaps; pass `spanGaps` to connect across them
+ *  (drops the null points and joins the remaining ones, like Chart.js `spanGaps`). */
+export function linePath(arr: Series, x: any, times: any[], y: any, spanGaps = false): string | null {
+  if (spanGaps) {
+    const pts = times
+      .map((t, i) => [x(t), arr[i]] as [number, number | null])
+      .filter((p): p is [number, number] => p[1] != null);
+    return d3.line<[number, number]>().x(p => p[0]).y(p => y(p[1])).curve(d3.curveMonotoneX)(pts);
+  }
   return d3.line<number>()
     .defined((_, i) => arr[i] != null)
     .x((_, i) => x(times[i])).y((_, i) => y(arr[i]!))
