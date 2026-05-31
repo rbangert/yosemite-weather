@@ -1,5 +1,9 @@
 # Roadmap: Migrate charting from Chart.js to D3
 
+> **Status: ✅ complete.** All phases below shipped — every chart runs on the shared D3
+> module (`web/src/lib/d3chart.ts`) and the `chart.js` dependency has been removed. This
+> document is kept as the migration record.
+
 ## Why
 
 The hourly **Meteogram** was rebuilt from scratch in D3 (`web/src/components/MeteogramD3.astro`)

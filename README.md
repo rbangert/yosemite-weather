@@ -440,18 +440,20 @@ moon data (rise/set times, phase, illumination) is computed server-side via
 
 ### Charts
 
-Area dashboards include an **hourly Meteogram**: an NWS-style 5-panel graph
+All charts are rendered with [D3](https://d3js.org) on a shared helper module,
+[`web/src/lib/d3chart.ts`](web/src/lib/d3chart.ts) (palette, unit helpers, path
+generators, axes, day/night shading, and the cross-panel hover). The headline chart is
+the **hourly Meteogram** on the area dashboards' "Hourly" tab
+([`MeteogramD3.astro`](web/src/components/MeteogramD3.astro)): an NWS-style 5-panel graph
 (temperature / dewpoint / feels-like, surface wind + gust + direction, sky cover,
-precipitation potential + thunder, relative humidity) with day/night shading from
-sunrise/sunset, a "now" marker, reference lines (freezing, fire-weather dry-air), and
-a synced cross-panel hover. It exists in two implementations behind tabs:
-[`MeteogramD3.astro`](web/src/components/MeteogramD3.astro) ([D3](https://d3js.org), a
-single stacked SVG) and [`Meteogram.astro`](web/src/components/Meteogram.astro)
-([Chart.js](https://www.chartjs.org)).
+precipitation potential + thunder, relative humidity) drawn as one stacked SVG with
+day/night shading from sunrise/sunset, a "now" marker, reference lines (freezing,
+fire-weather dry-air), and a synced cross-panel hover. The location-detail temp/precip
+chart, the multi-year snowpack SWE chart, and the data-explorer panels all build on the
+same module.
 
-Charting is **migrating from Chart.js to D3** — the meteogram is the first piece, and the
-remaining charts (location-detail temp/precip, snowpack SWE, the data explorer) follow.
-See [`docs/d3-migration.md`](docs/d3-migration.md) for the plan.
+> The project previously used Chart.js; it was fully migrated to D3 and the dependency
+> removed. See [`docs/d3-migration.md`](docs/d3-migration.md) for the migration record.
 
 ### Pages
 
@@ -461,7 +463,7 @@ See [`docs/d3-migration.md`](docs/d3-migration.md) for the plan.
 | `/areas/:slug` | `src/pages/areas/[area].astro` | South or High Country area dashboard |
 | `/:slug` | `src/pages/[slug].astro` | Location detail — current conditions, 7-day periods, 72h chart |
 | `/snowpack` | `src/pages/snowpack.astro` | NRCS SNOTEL station SWE — multi-year water-year comparison charts (CDEC data) |
-| `/data` | `src/pages/data.astro` | Data explorer — Chart.js panels for all DB variables, coverage grid |
+| `/data` | `src/pages/data.astro` | Data explorer — D3 panels for all DB variables, coverage grid |
 
 Each area dashboard shows: a summary card (representative-point conditions), a tabbed
 forecast (7-day periods, an hourly graph, and the D3/Chart.js Meteograms), a
@@ -515,22 +517,21 @@ to load data. Other scripts: `bun run build` (production build), `bun run check`
     └── src/
         ├── components/
         │   ├── AlertsBanner.astro   # Severity-coded NWS alert cards
-        │   ├── ForecastTabs.astro   # 7-Day / Hourly / Meteogram / Meteogram D3 tab shell
+        │   ├── ForecastTabs.astro   # 7-Day / Hourly tab shell (Hourly = D3 meteogram)
         │   ├── MeteogramD3.astro    # D3 5-panel hourly meteogram (single stacked SVG)
-        │   ├── Meteogram.astro      # Chart.js 5-panel hourly meteogram (superseded by D3)
-        │   ├── HourlyGraph.astro    # Chart.js condensed 4-panel hourly graph (superseded)
-        │   ├── ForecastChart.astro  # Chart.js temp + precip island (detail page)
+        │   ├── ForecastChart.astro  # D3 temp + precip chart (detail page)
         │   ├── ObsTable.astro       # Current conditions table (deduplicated by station)
         │   ├── PeriodForecast.astro # 7-day day/night period table with weather icons
         │   ├── SummaryCard.astro    # Area summary (conditions + notable weather)
         │   ├── SunMoonCard.astro    # Sunrise/sunset + moon phase card
         │   ├── SWECard.astro        # Single-station SWE chart (embeddable, compact mode)
-        │   ├── SWEChart.astro       # Chart.js multi-year water-year SWE line chart
+        │   ├── SWEChart.astro       # D3 multi-year water-year SWE line chart
         │   └── SWEStationTabs.astro # Tabbed SWE view across all SNOTEL stations
         ├── layouts/
         │   └── Layout.astro         # Page shell + sticky nav + alerts banner
         ├── lib/
         │   ├── api.ts               # Typed backend API client
+        │   ├── d3chart.ts           # Shared D3 charting helpers (palette, axes, hover, units)
         │   ├── holidays.ts          # US holiday lookup utility
         │   ├── nwsIcons.ts          # NWS icon slug → weather-icons class mapping
         │   └── sunMoon.ts           # suncalc wrappers for sun/moon data
@@ -588,7 +589,7 @@ adapted for Yosemite. Milestones are ordered roughly by priority; checked items 
 - [x] Additional chart series — wind & gusts, humidity, sky cover delivered by the hourly Meteogram (snow level still pending)
 - [x] Wind direction indicators — rotated arrows + compass labels in the Meteogram wind panel
 - [x] Unit toggle (°F/°C, mph/km/h, in/mm) — client-side toggle in nav, persisted in localStorage
-- [ ] Migrate charting from Chart.js to D3 — meteogram done; detail chart, SWE, and data explorer pending. See [`docs/d3-migration.md`](docs/d3-migration.md)
+- [x] Migrate charting from Chart.js to D3 — all charts (meteogram, detail chart, SWE, data explorer) ported to a shared D3 module; `chart.js` removed. See [`docs/d3-migration.md`](docs/d3-migration.md)
 - [ ] WBGT (wet bulb globe temperature / heat stress) indicator on detail page — available from NWS raw gridpoint
 
 #### Milestone 5 — Snow & avalanche
