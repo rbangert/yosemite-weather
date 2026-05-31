@@ -2,6 +2,7 @@
 import PeriodForecast from './PeriodForecast.astro';
 import HourlyGraph from './HourlyGraph.astro';
 import Meteogram from './Meteogram.astro';
+import MeteogramD3 from './MeteogramD3.astro';
 import type { ForecastRow, PeriodForecastRow } from '../lib/api';
 
 interface Props {
@@ -49,6 +50,16 @@ const { periods, forecast, area, lat, lon } = Astro.props;
       <span class="block text-sm font-medium">Meteogram</span>
       <span class="ft-tab-indicator absolute bottom-0 left-0 right-0 h-0.5 rounded-full opacity-0" style="background:#8BE9FD"></span>
     </button>
+    <button
+      role="tab"
+      aria-selected="false"
+      aria-controls="ft-panel-meteogram-d3"
+      data-tab-id="meteogram-d3"
+      class="ft-tab-btn relative px-3 py-3 text-left focus:outline-none text-[#6272A4] hover:text-[#F8F8F2] transition-colors"
+    >
+      <span class="block text-sm font-medium">Meteogram D3</span>
+      <span class="ft-tab-indicator absolute bottom-0 left-0 right-0 h-0.5 rounded-full opacity-0" style="background:#8BE9FD"></span>
+    </button>
   </div>
 
   <!-- 7-Day panel (visible by default) -->
@@ -90,6 +101,19 @@ const { periods, forecast, area, lat, lon } = Astro.props;
     }
   </div>
 
+  <!-- Meteogram D3 panel (D3-rendered variant; charts init lazily) -->
+  <div
+    id="ft-panel-meteogram-d3"
+    role="tabpanel"
+    data-panel-id="meteogram-d3"
+    class="ft-panel hidden p-4 pt-2"
+  >
+    {forecast.length > 0
+      ? <MeteogramD3 forecast={forecast} area={area} lat={lat} lon={lon} />
+      : <p class="py-6 text-sm text-slate-500">No hourly data available.</p>
+    }
+  </div>
+
 </div>
 
 <script>
@@ -98,6 +122,7 @@ const { periods, forecast, area, lat, lon } = Astro.props;
     const tabs = card.querySelectorAll<HTMLButtonElement>('.ft-tab-btn');
     let hourlyActivated = false;
     let meteogramActivated = false;
+    let meteogramD3Activated = false;
 
     tabs.forEach(tab => {
       tab.addEventListener('click', () => {
@@ -126,6 +151,10 @@ const { periods, forecast, area, lat, lon } = Astro.props;
         if (targetId === 'meteogram' && !meteogramActivated) {
           meteogramActivated = true;
           document.dispatchEvent(new CustomEvent('ft-meteogram-activate'));
+        }
+        if (targetId === 'meteogram-d3' && !meteogramD3Activated) {
+          meteogramD3Activated = true;
+          document.dispatchEvent(new CustomEvent('ft-meteogram-d3-activate'));
         }
       });
     });
