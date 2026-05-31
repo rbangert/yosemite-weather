@@ -195,9 +195,16 @@ export interface SwePoint {
   value: number | null; // SWE in inches
 }
 
+export interface SweAveragePoint {
+  day: number;          // day of water year (Oct 1 = 1)
+  value: number;        // mean SWE in inches
+}
+
 export interface SweResponse {
   station: SnotelStation;
   waterYears: Record<string, SwePoint[]>;
+  /** Per-day mean SWE over the 10 and 20 most recent complete water years. */
+  averages: { '10': SweAveragePoint[]; '20': SweAveragePoint[] };
 }
 
 export async function fetchSweStations(): Promise<{ stations: SnotelStation[] }> {

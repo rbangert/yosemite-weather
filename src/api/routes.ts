@@ -260,17 +260,46 @@ function handleSwe(stationId: string): Response {
 
   const rows = db.prepare(`SELECT date, value_in FROM swe_readings WHERE station_id = ? ORDER BY date ASC`).all(stationId.toUpperCase()) as { date: string; value_in: number | null }[];
 
-  // Group into water years, computing day-of-water-year for the x-axis.
-  const waterYears: Record<string, { day: number; date: string; value: number | null }[]> = {};
-
+  // Group every reading by water year (day-of-water-year is the chart x-axis).
+  const byYear: Record<number, { day: number; date: string; value: number | null }[]> = {};
   for (const row of rows) {
-    const wy = toWaterYear(row.date);
+    const wy = Number(toWaterYear(row.date));
     const day = toWaterYearDay(row.date);
-    if (!waterYears[wy]) waterYears[wy] = [];
-    waterYears[wy].push({ day, date: row.date, value: row.value_in });
+    (byYear[wy] ??= []).push({ day, date: row.date, value: row.value_in });
   }
 
-  return json({ station, waterYears });
+  const now = new Date();
+  const currentWy = now.getMonth() >= 9 ? now.getFullYear() + 1 : now.getFullYear();
+
+  // Per-day mean SWE over the N most recent COMPLETE water years (the current,
+  // partial year is excluded so late-season values aren't biased downward).
+  // CDEC sensor noise (negatives, > 90") is dropped before averaging.
+  const meanByDay = (n: number) => {
+    const sums = new Float64Array(367);
+    const counts = new Int32Array(367);
+    for (let wy = currentWy - n; wy <= currentWy - 1; wy++) {
+      for (const p of byYear[wy] ?? []) {
+        if (p.value == null || p.value < 0 || p.value > 90) continue;
+        if (p.day >= 1 && p.day <= 366) { sums[p.day] += p.value; counts[p.day]++; }
+      }
+    }
+    const out: { day: number; value: number }[] = [];
+    for (let day = 1; day <= 366; day++) {
+      if (counts[day] > 0) out.push({ day, value: Math.round((sums[day] / counts[day]) * 100) / 100 });
+    }
+    return out;
+  };
+
+  // Individual year lines: the 10 most recent water years.
+  const recentKeys = Object.keys(byYear).map(Number).sort((a, b) => a - b).slice(-10);
+  const waterYears: Record<string, { day: number; date: string; value: number | null }[]> = {};
+  for (const wy of recentKeys) waterYears[wy] = byYear[wy];
+
+  return json({
+    station,
+    waterYears,
+    averages: { '10': meanByDay(10), '20': meanByDay(20) },
+  });
 }
 
 function toWaterYear(dateStr: string): string {

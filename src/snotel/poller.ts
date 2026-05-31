@@ -40,34 +40,33 @@ async function fetchAndStore(stationId: string, begin: string, end: string): Pro
   return rows.length;
 }
 
-// Backfill all water years if the table is sparse (first run or after DB reset).
+// Ensure every (station, water year) in the configured window is present.
+// Idempotent: checks per station+year and fetches only the missing/sparse ones,
+// so widening `snotelBackfillYears` pulls just the newly-needed older years.
+// The current (incomplete) water year is left to updateSwe().
 export async function backfillSwe(): Promise<void> {
   const db = getDb();
-  const { count } = db.prepare(`SELECT COUNT(*) AS count FROM swe_readings`).get() as { count: number };
-
-  // Each station × each year has at most ~365 rows. If we already have a
-  // reasonable fraction, assume backfill was done.
-  const threshold = SNOTEL_STATIONS.length * config.snotelBackfillYears * 100;
-  if (count >= threshold) return;
-
   const currentWy = waterYear(new Date());
   const firstWy = currentWy - config.snotelBackfillYears + 1;
 
-  console.log(`SNOTEL backfill: WY${firstWy}–WY${currentWy} for ${SNOTEL_STATIONS.length} stations...`);
+  const countStmt = db.prepare(
+    `SELECT COUNT(*) AS count FROM swe_readings WHERE station_id = ? AND date >= ? AND date <= ?`
+  );
 
   for (const station of SNOTEL_STATIONS) {
-    let total = 0;
-    for (let wy = firstWy; wy <= currentWy; wy++) {
+    let fetched = 0;
+    for (let wy = firstWy; wy < currentWy; wy++) {
       const begin = wyStart(wy);
-      const end = wy === currentWy ? today() : wyEnd(wy);
+      const end = wyEnd(wy);
+      const { count } = countStmt.get(station.stationId, begin, end) as { count: number };
+      if (count >= 300) continue; // a complete water year has ~365 daily rows
       try {
-        const n = await fetchAndStore(station.stationId, begin, end);
-        total += n;
+        fetched += await fetchAndStore(station.stationId, begin, end);
       } catch (err) {
         console.warn(`  SNOTEL ${station.stationId} WY${wy}: ${(err as Error).message}`);
       }
     }
-    console.log(`  ${station.stationId} (${station.name}): ${total} readings stored`);
+    if (fetched > 0) console.log(`  SNOTEL backfill ${station.stationId} (${station.name}): ${fetched} readings`);
   }
 }
 

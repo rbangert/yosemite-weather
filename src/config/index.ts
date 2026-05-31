@@ -34,8 +34,9 @@ export const config = {
 
   // SNOTEL SWE: poll daily (data only updates once per day at midnight PST).
   snotelPollIntervalMs: Number(process.env.SNOTEL_POLL_INTERVAL_MS) || 24 * 60 * 60 * 1000,
-  // Number of past water years to backfill (current WY + this many prior WYs).
-  snotelBackfillYears: Number(process.env.SNOTEL_BACKFILL_YEARS) || 10,
+  // Number of water years to keep on hand (current WY + prior WYs). 21 gives the
+  // current year + 20 complete prior years, enough for the 20-year SWE average.
+  snotelBackfillYears: Number(process.env.SNOTEL_BACKFILL_YEARS) || 21,
 };
 
 // A monitored location, identified by coordinates. NWS resolves these to a
