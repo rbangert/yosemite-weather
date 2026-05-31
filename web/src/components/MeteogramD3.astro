@@ -1,0 +1,304 @@
+---
+import type { ForecastRow } from '../lib/api';
+import { getSunData } from '../lib/sunMoon';
+
+interface Props {
+  forecast: ForecastRow[];
+  area: string;
+  lat?: number;
+  lon?: number;
+}
+
+const { forecast, lat, lon } = Astro.props;
+if (!forecast.length) return;
+
+// Compact payload mirrored client-side; one entry per forecast hour.
+const payload = forecast.map(row => ({
+  t: row.valid_time,
+  temp: row.air_temp,
+  apparent: row.apparent_temp,
+  dew: row.dewpoint,
+  wind: row.wind_speed,
+  gust: row.wind_gust,
+  dir: row.wind_direction,
+  sky: row.sky_cover,
+  precip: row.precip_prob,
+  thunder: row.thunder_prob,
+  rh: row.relative_humidity,
+}));
+
+// Contiguous night runs as [startIdx, endIdx] (inclusive), from sunrise/sunset
+// for each hour's local day. Skipped when coordinates aren't supplied.
+function computeNightRuns(): [number, number][] {
+  if (lat == null || lon == null) return [];
+  const runs: [number, number][] = [];
+  let start = -1;
+  forecast.forEach((row, i) => {
+    const t = new Date(row.valid_time);
+    const sun = getSunData(t, lat, lon);
+    const isNight = t < sun.sunrise || t >= sun.sunset;
+    if (isNight && start === -1) start = i;
+    if (!isNight && start !== -1) { runs.push([start, i - 1]); start = -1; }
+  });
+  if (start !== -1) runs.push([start, forecast.length - 1]);
+  return runs;
+}
+const nightRuns = computeNightRuns();
+---
+
+<div id="meteogram-d3" data-forecast={JSON.stringify(payload)} data-nights={JSON.stringify(nightRuns)} class="relative">
+  <!-- Legend -->
+  <div class="flex flex-wrap gap-x-4 gap-y-0.5 px-1 pb-2 pt-1 text-[11px] text-slate-500">
+    <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-4 bg-[#FFB86C]"></span>Temp</span>
+    <span class="flex items-center gap-1.5"><span class="inline-block w-4 border-t border-dashed border-[#50FA7B]"></span>Dewpoint</span>
+    <span class="flex items-center gap-1.5"><span class="inline-block w-4 border-t border-dashed border-[#FF5555]"></span>Feels like</span>
+    <span class="flex items-center gap-1.5"><span class="inline-block h-2 w-3 rounded-sm" style="background:rgba(80,250,123,0.35)"></span>Wind</span>
+    <span class="flex items-center gap-1.5"><span class="inline-block h-2 w-3 rounded-sm" style="background:rgba(98,114,164,0.6)"></span>Sky</span>
+    <span class="flex items-center gap-1.5"><span class="inline-block h-2 w-3 rounded-sm" style="background:rgba(139,233,253,0.5)"></span>Precip%</span>
+    <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-4 bg-[#FFB86C]"></span>Thunder%</span>
+    <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-4 bg-[#BD93F9]"></span>Humidity</span>
+    <span class="flex items-center gap-1.5"><span class="inline-block h-2 w-3 rounded-sm" style="background:rgba(20,21,33,0.85)"></span>Night</span>
+  </div>
+
+  <div class="overflow-x-auto">
+    <div id="mgd3-host" class="relative min-w-[680px]"></div>
+  </div>
+</div>
+
+<style is:global>
+  #meteogram-d3 svg { display: block; }
+  #meteogram-d3 .mgd3-title { fill: #6272A4; font-size: 9px; letter-spacing: 0.05em; text-transform: uppercase; }
+  #meteogram-d3 .mgd3-axis text { font-size: 9px; }
+  #meteogram-d3 .mgd3-axis .domain { display: none; }
+  #meteogram-d3 .mgd3-axis .tick line { stroke: rgba(148,163,184,0.10); }
+  #meteogram-d3 .mgd3-xaxis text { fill: #6272A4; }
+  #meteogram-d3 .mgd3-tip {
+    position: absolute; pointer-events: none; z-index: 20; display: none;
+    background: #282A36; border: 1px solid #44475A; border-radius: 6px;
+    padding: 6px 8px; font-size: 11px; color: #ABB2BF; white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  #meteogram-d3 .mgd3-tip .tip-title { color: #F8F8F2; font-weight: 600; margin-bottom: 3px; }
+  #meteogram-d3 .mgd3-tip .tip-row { display: flex; gap: 8px; justify-content: space-between; }
+  #meteogram-d3 .mgd3-tip .tip-swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+</style>
+
+<script>
+  import * as d3 from 'd3';
+
+  type Row = {
+    t: string;
+    temp: number | null; apparent: number | null; dew: number | null;
+    wind: number | null; gust: number | null; dir: number | null;
+    sky: number | null; precip: number | null; thunder: number | null;
+    rh: number | null;
+  };
+
+  const wrapper = document.getElementById('meteogram-d3') as HTMLDivElement | null;
+  if (wrapper) {
+    const host = document.getElementById('mgd3-host') as HTMLDivElement;
+    const raw: Row[] = JSON.parse(wrapper.dataset.forecast!);
+    const nightRuns: [number, number][] = JSON.parse(wrapper.dataset.nights ?? '[]');
+    const times = raw.map(r => new Date(r.t));
+
+    // ── Units ────────────────────────────────────────────────────────────────
+    const toC  = (f: number | null) => f === null ? null : Math.round((f - 32) * 5 / 9);
+    const toKh = (m: number | null) => m === null ? null : Math.round(m * 1.60934);
+    const cardinal = (deg: number | null) =>
+      deg === null ? '' : ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(deg / 45) % 8];
+    let sys = localStorage.getItem('units') ?? 'imperial';
+    const tConv = (v: number | null) => sys === 'metric' ? toC(v) : v;
+    const wConv = (v: number | null) => sys === 'metric' ? toKh(v) : v;
+    const tUnit = () => sys === 'metric' ? '°C' : '°F';
+    const wUnit = () => sys === 'metric' ? 'km/h' : 'mph';
+
+    // ── Dracula palette ───────────────────────────────────────────────────────
+    const C = {
+      temp: '#FFB86C', feels: '#FF5555', dew: '#50FA7B',
+      wind: '#50FA7B', sky: '#6272A4', precip: '#8BE9FD', thunder: '#FFB86C',
+      rh: '#BD93F9', grid: 'rgba(148,163,184,0.10)', night: 'rgba(20,21,33,0.55)',
+      now: 'rgba(248,248,242,0.18)', hover: 'rgba(248,248,242,0.28)',
+    };
+
+    // ── Layout ────────────────────────────────────────────────────────────────
+    const M = { left: 40, right: 14 };
+    const TITLE_H = 13;   // space above each panel's plot area for its title
+    const AXIS_H = 18;    // bottom time-axis band under the last panel
+    const PAD_T = 6, PAD_B = 6; // inner vertical padding within a panel's plot
+
+    // Tooltip element (HTML, positioned over the SVG)
+    const tip = document.createElement('div');
+    tip.className = 'mgd3-tip';
+    host.appendChild(tip);
+
+    let built = false;
+
+    document.addEventListener('ft-meteogram-d3-activate', () => {
+      if (built) return;
+      built = true;
+      render();
+      let rt: number | undefined;
+      window.addEventListener('resize', () => { clearTimeout(rt); rt = window.setTimeout(render, 150); });
+      document.addEventListener('unitschange', e => {
+        sys = (e as CustomEvent<{ sys: string }>).detail.sys;
+        render();
+      });
+    });
+
+    // ── Render ────────────────────────────────────────────────────────────────
+    function render() {
+      const width = Math.max(680, host.clientWidth || 680);
+      // Clear previous SVG (keep the tooltip node)
+      host.querySelectorAll('svg').forEach(n => n.remove());
+
+      // Panel descriptors, top→bottom. `draw` receives its absolute y offset.
+      const panels: { label: string; h: number; draw: (top: number) => void }[] = [
+        { label: 'Temperature', h: 130, draw: drawTemp },
+      ];
+
+      const plotBottom = panels.reduce((s, p) => s + p.h, 0);
+      const totalH = plotBottom + AXIS_H;
+
+      const svg = d3.select(host).append('svg')
+        .attr('width', width).attr('height', totalH).attr('class', 'mgd3');
+
+      const x = d3.scaleTime()
+        .domain([times[0], times[times.length - 1]])
+        .range([M.left, width - M.right]);
+      const step = times.length > 1 ? x(times[1]) - x(times[0]) : 12;
+      const half = step / 2;
+
+      // Per-hour focus targets collected by panels, used by the shared hover.
+      const focus: { top: number; y: d3.ScaleLinear<number, number>; color: string; data: (number | null)[] }[] = [];
+
+      // ── Shared helpers (close over x/half/width/svg) ────────────────────────
+      function nightRects(g: any, ct: number, cb: number) {
+        for (const [a, b] of nightRuns) {
+          const l = Math.max(M.left, x(times[a]) - half);
+          const r = Math.min(width - M.right, x(times[b]) + half);
+          if (r > l) g.append('rect').attr('x', l).attr('y', ct).attr('width', r - l).attr('height', cb - ct).attr('fill', C.night);
+        }
+      }
+      function title(g: any, label: string) {
+        g.append('text').attr('class', 'mgd3-title').attr('x', M.left).attr('y', 9).text(label);
+      }
+      function yAxis(g: any, y: any, fmt: (v: any) => string, color: string, ticks = 4) {
+        const ax = d3.axisLeft(y).ticks(ticks).tickFormat(fmt as any).tickSize(-(width - M.left - M.right));
+        const gg = g.append('g').attr('class', 'mgd3-axis').attr('transform', `translate(${M.left},0)`).call(ax);
+        gg.selectAll('text').attr('fill', color);
+      }
+      function refLine(g: any, y: any, val: number, color: string, label: string) {
+        const [d0, d1] = y.domain();
+        if (val < Math.min(d0, d1) || val > Math.max(d0, d1)) return;
+        const py = y(val);
+        g.append('line').attr('x1', M.left).attr('x2', width - M.right).attr('y1', py).attr('y2', py)
+          .attr('stroke', color).attr('stroke-dasharray', '2,3');
+        g.append('text').attr('x', M.left + 3).attr('y', py - 2).attr('fill', color).attr('font-size', 9).text(label);
+      }
+      const mkLine = (arr: (number | null)[], y: any) => d3.line<number>()
+        .defined((_, i) => arr[i] != null)
+        .x((_, i) => x(times[i])).y((_, i) => y(arr[i]!)).curve(d3.curveMonotoneX);
+      const mkArea = (arr: (number | null)[], y: any, y0: number) => d3.area<number>()
+        .defined((_, i) => arr[i] != null)
+        .x((_, i) => x(times[i])).y0(y0).y1((_, i) => y(arr[i]!)).curve(d3.curveMonotoneX);
+
+      // ── Panel: Temperature ──────────────────────────────────────────────────
+      function drawTemp(top: number) {
+        const g = svg.append('g').attr('transform', `translate(0,${top})`);
+        title(g, 'Temperature');
+        const ct = TITLE_H, cb = 130;
+        const temps = raw.map(r => tConv(r.temp));
+        const feels = raw.map(r => tConv(r.apparent));
+        const dews  = raw.map(r => tConv(r.dew));
+        const all = [...temps, ...feels, ...dews].filter((v): v is number => v != null);
+        const y = d3.scaleLinear()
+          .domain([d3.min(all)!, d3.max(all)!]).nice()
+          .range([cb - PAD_B, ct + PAD_T]);
+        nightRects(g, ct, cb);
+        yAxis(g, y, v => `${v}°`, C.temp);
+        refLine(g, y, sys === 'metric' ? 0 : 32, 'rgba(139,233,253,0.30)', sys === 'metric' ? '0°' : '32°');
+        // temp area + line
+        g.append('path').datum(temps as any).attr('d', mkArea(temps, y, cb - PAD_B) as any)
+          .attr('fill', 'rgba(255,184,108,0.15)');
+        g.append('path').datum(temps as any).attr('d', mkLine(temps, y) as any)
+          .attr('fill', 'none').attr('stroke', C.temp).attr('stroke-width', 2);
+        g.append('path').datum(feels as any).attr('d', mkLine(feels, y) as any)
+          .attr('fill', 'none').attr('stroke', C.feels).attr('stroke-width', 1.5).attr('stroke-dasharray', '2,2');
+        g.append('path').datum(dews as any).attr('d', mkLine(dews, y) as any)
+          .attr('fill', 'none').attr('stroke', C.dew).attr('stroke-width', 1.5).attr('stroke-dasharray', '5,3');
+        focus.push({ top, y, color: C.temp, data: temps });
+        focus.push({ top, y, color: C.feels, data: feels });
+        focus.push({ top, y, color: C.dew, data: dews });
+      }
+
+      // Draw panels in order, tracking cumulative offset.
+      let top = 0;
+      for (const p of panels) { p.draw(top); top += p.h; }
+
+      // ── Bottom time axis ────────────────────────────────────────────────────
+      const xAxis = d3.axisBottom(x)
+        .ticks(d3.timeHour.every(6))
+        .tickFormat(d3.timeFormat('%a %-I %p') as any);
+      svg.append('g').attr('class', 'mgd3-axis mgd3-xaxis')
+        .attr('transform', `translate(0,${plotBottom})`).call(xAxis);
+
+      // ── Now-line ────────────────────────────────────────────────────────────
+      const now = new Date();
+      if (now >= times[0] && now <= times[times.length - 1]) {
+        const px = x(now);
+        svg.append('line').attr('x1', px).attr('x2', px).attr('y1', 0).attr('y2', plotBottom)
+          .attr('stroke', C.now).attr('stroke-width', 1).attr('stroke-dasharray', '4,4');
+      }
+
+      // ── Shared cross-panel hover ────────────────────────────────────────────
+      const hoverLine = svg.append('line')
+        .attr('y1', 0).attr('y2', plotBottom).attr('stroke', C.hover).attr('stroke-width', 1)
+        .style('display', 'none');
+      const dotsG = svg.append('g').style('display', 'none');
+
+      svg.append('rect')
+        .attr('x', M.left).attr('y', 0)
+        .attr('width', width - M.left - M.right).attr('height', plotBottom)
+        .attr('fill', 'none').style('pointer-events', 'all')
+        .on('mousemove', (event: MouseEvent) => {
+          const [mx] = d3.pointer(event);
+          const i = Math.max(0, Math.min(times.length - 1, d3.bisectCenter(times, x.invert(mx))));
+          const px = x(times[i]);
+          hoverLine.attr('x1', px).attr('x2', px).style('display', null);
+          const active = focus.filter(f => f.data[i] != null);
+          dotsG.style('display', null).selectAll('circle')
+            .data(active).join('circle')
+            .attr('cx', px).attr('cy', d => d.top + d.y(d.data[i]!))
+            .attr('r', 2.5).attr('fill', d => d.color);
+          showTip(i, px);
+        })
+        .on('mouseleave', () => {
+          hoverLine.style('display', 'none');
+          dotsG.style('display', 'none');
+          tip.style.display = 'none';
+        });
+    }
+
+    // ── Tooltip content ─────────────────────────────────────────────────────
+    function showTip(i: number, px: number) {
+      const r = raw[i];
+      const rowsHtml: string[] = [];
+      const add = (color: string, label: string, val: string) =>
+        rowsHtml.push(`<div class="tip-row"><span><span class="tip-swatch" style="background:${color}"></span>${label}</span><span>${val}</span></div>`);
+      if (r.temp != null) add(C.temp, 'Temp', `${tConv(r.temp)}${tUnit()}`);
+      if (r.apparent != null) add(C.feels, 'Feels', `${tConv(r.apparent)}${tUnit()}`);
+      if (r.dew != null) add(C.dew, 'Dew', `${tConv(r.dew)}${tUnit()}`);
+
+      const title = times[i].toLocaleString('en-US', { weekday: 'short', hour: 'numeric', hour12: true });
+      tip.innerHTML = `<div class="tip-title">${title}</div>${rowsHtml.join('')}`;
+      tip.style.display = 'block';
+      // Position: clamp within host
+      const hostW = host.clientWidth;
+      const tw = tip.offsetWidth;
+      let left = px + 12;
+      if (left + tw > hostW) left = px - tw - 12;
+      tip.style.left = `${Math.max(0, left)}px`;
+      tip.style.top = `4px`;
+    }
+  }
+</script>
