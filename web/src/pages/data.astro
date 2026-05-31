@@ -120,7 +120,7 @@ const chartPayload = samplePoint ? JSON.stringify(
                 <span class="flex items-center gap-1.5"><span class="inline-block h-3 w-4 rounded bg-slate-600/80"></span>Sky %</span>
               </div>
             </div>
-            <div class="h-52"><canvas id="chart-temp-sky"></canvas></div>
+            <div id="chart-temp-sky" class="de-host relative h-52"></div>
           </div>
 
           <!-- Chart 2: Wind Speed + Gust -->
@@ -132,7 +132,7 @@ const chartPayload = samplePoint ? JSON.stringify(
                 <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-4 rounded border-t-2 border-dashed border-sky-300"></span>Gust mph</span>
               </div>
             </div>
-            <div class="h-52"><canvas id="chart-wind"></canvas></div>
+            <div id="chart-wind" class="de-host relative h-52"></div>
           </div>
 
           <!-- Chart 3: Precip Probability + Relative Humidity -->
@@ -144,7 +144,7 @@ const chartPayload = samplePoint ? JSON.stringify(
                 <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-4 rounded bg-teal-400"></span>Humidity %</span>
               </div>
             </div>
-            <div class="h-52"><canvas id="chart-precip-rh"></canvas></div>
+            <div id="chart-precip-rh" class="de-host relative h-52"></div>
           </div>
 
           <!-- Chart 4: Snowfall Amount + Snow Level -->
@@ -156,7 +156,7 @@ const chartPayload = samplePoint ? JSON.stringify(
                 <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-4 rounded bg-violet-400"></span>Level ft</span>
               </div>
             </div>
-            <div class="h-52"><canvas id="chart-snow"></canvas></div>
+            <div id="chart-snow" class="de-host relative h-52"></div>
           </div>
 
         </div>
@@ -292,206 +292,165 @@ const chartPayload = samplePoint ? JSON.stringify(
 <!-- Data bridge: server-rendered JSON read by the client chart script -->
 <div id="chart-data" data-payload={chartPayload} class="hidden"></div>
 
-<!-- Chart initialisation ─────────────────────────────────────────────────── -->
+<style is:global>
+  .de-host svg { display: block; }
+  .de-tip {
+    position: absolute; pointer-events: none; z-index: 20; display: none;
+    background: #1e293b; border: 1px solid #334155; border-radius: 6px;
+    padding: 6px 8px; font-size: 11px; color: #cbd5e1; white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  .de-tip .tip-title { color: #f1f5f9; font-weight: 600; margin-bottom: 3px; }
+  .de-tip .tip-row { display: flex; gap: 10px; justify-content: space-between; }
+  .de-tip .tip-swatch { display: inline-block; width: 10px; height: 6px; border-radius: 1px; margin-right: 5px; vertical-align: middle; }
+</style>
+
+<!-- Chart initialisation — D3 panels driven by a shared config ────────────── -->
 <script>
+  import * as d3 from 'd3';
   import {
-    Chart,
-    LineController, BarController,
-    LineElement, BarElement, PointElement,
-    LinearScale, CategoryScale,
-    Tooltip, Filler,
-  } from 'chart.js';
+    leftAxis, rightAxis, timeAxis, attachHover, linePath, areaPath, halfStep,
+    type FocusSeries,
+  } from '../lib/d3chart';
 
-  Chart.register(
-    LineController, BarController,
-    LineElement, BarElement, PointElement,
-    LinearScale, CategoryScale,
-    Tooltip, Filler,
-  );
+  type Row = { t: string } & Record<string, number | null>;
+  const payloadEl = document.getElementById('chart-data') as HTMLElement | null;
+  const rows: Row[] = JSON.parse(payloadEl?.dataset.payload ?? '[]');
 
-  const payload = (document.getElementById('chart-data') as HTMLElement | null)?.dataset.payload ?? '[]';
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rows: any[] = JSON.parse(payload);
-  if (!rows.length) throw new Error('No chart data');
+  if (rows.length) {
+    const times = rows.map(r => new Date(r.t));
+    const vals = (key: string) => rows.map(r => r[key]);
 
-  const labels: string[] = rows.map((r: any) =>
-    new Date(r.t as string).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', hour12: true })
-  );
+    type Ser = {
+      key: string; kind: 'line' | 'bar'; axis: 'left' | 'right'; color: string;
+      label: string; unit: string; fill?: string; stroke?: string;
+      dash?: [number, number]; width?: number; dec?: number; thousands?: boolean;
+    };
+    type AxisCfg = { color: string; fmt: (v: any) => string; domain?: [number, number]; min0?: boolean };
+    type PanelCfg = { left: AxisCfg; right?: AxisCfg; series: Ser[] };
 
-  const GRID = 'rgba(148,163,184,0.07)';
-  const TICK = '#64748b';
+    function domainFor(keys: string[], min0?: boolean): [number, number] {
+      const flat = keys.flatMap(k => vals(k).filter((v): v is number => v != null));
+      const mn = min0 ? 0 : (d3.min(flat) ?? 0);
+      const mx = d3.max(flat) ?? 1;
+      return [mn, mx === mn ? mn + 1 : mx];
+    }
 
-  const sharedOpts = {
-    responsive: true,
-    maintainAspectRatio: false,
-    interaction: { mode: 'index' as const, intersect: false },
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        backgroundColor: '#1e293b',
-        borderColor: '#334155',
-        borderWidth: 1,
-        titleColor: '#f1f5f9',
-        bodyColor: '#cbd5e1',
-        padding: 8,
+    const panels: Record<string, PanelCfg> = {
+      'chart-temp-sky': {
+        left:  { color: '#fbbf24', fmt: v => `${v}°` },
+        right: { color: '#64748b', fmt: v => `${v}%`, domain: [0, 100] },
+        series: [
+          { key: 'temp', kind: 'line', axis: 'left',  color: '#fbbf24', fill: 'rgba(251,191,36,0.10)', width: 2, label: 'Temp', unit: '°' },
+          { key: 'sky',  kind: 'bar',  axis: 'right', color: 'rgba(100,116,139,0.35)', stroke: 'rgba(100,116,139,0.5)', label: 'Sky', unit: '%' },
+        ],
       },
-    },
-  };
-
-  // ── Chart 1: Temperature + Sky Cover ──────────────────────────────────
-  new Chart(document.getElementById('chart-temp-sky') as HTMLCanvasElement, {
-    data: {
-      labels,
-      datasets: [
-        {
-          type: 'line',
-          label: 'Temp (°F)',
-          data: rows.map(r => r.temp),
-          yAxisID: 'yTemp',
-          borderColor: '#fbbf24',
-          backgroundColor: 'rgba(251,191,36,0.10)',
-          borderWidth: 2,
-          pointRadius: 0,
-          tension: 0.3,
-          fill: true,
-          spanGaps: true,
-        },
-        {
-          type: 'bar',
-          label: 'Sky Cover (%)',
-          data: rows.map(r => r.sky),
-          yAxisID: 'ySky',
-          backgroundColor: 'rgba(100,116,139,0.35)',
-          borderColor: 'rgba(100,116,139,0.5)',
-          borderWidth: 1,
-        },
-      ],
-    },
-    options: {
-      ...sharedOpts,
-      scales: {
-        x: { grid: { color: GRID }, ticks: { color: TICK, maxTicksLimit: 8, maxRotation: 0, autoSkip: true } },
-        yTemp: { position: 'left',  grid: { color: GRID }, ticks: { color: '#fbbf24', callback: v => `${v}°` } },
-        ySky:  { position: 'right', min: 0, max: 100, grid: { drawOnChartArea: false }, ticks: { color: TICK, callback: v => `${v}%` } },
+      'chart-wind': {
+        left: { color: '#38bdf8', fmt: v => `${v} mph`, min0: true },
+        series: [
+          { key: 'wind', kind: 'line', axis: 'left', color: '#38bdf8', fill: 'rgba(56,189,248,0.10)', width: 2, label: 'Wind', unit: ' mph' },
+          { key: 'gust', kind: 'line', axis: 'left', color: '#7dd3fc', dash: [4, 3], width: 1.5, label: 'Gust', unit: ' mph' },
+        ],
       },
-    },
-  });
-
-  // ── Chart 2: Wind Speed + Gust ────────────────────────────────────────
-  new Chart(document.getElementById('chart-wind') as HTMLCanvasElement, {
-    data: {
-      labels,
-      datasets: [
-        {
-          type: 'line',
-          label: 'Wind Speed (mph)',
-          data: rows.map(r => r.wind),
-          borderColor: '#38bdf8',
-          backgroundColor: 'rgba(56,189,248,0.10)',
-          borderWidth: 2,
-          pointRadius: 0,
-          tension: 0.3,
-          fill: true,
-          spanGaps: true,
-        },
-        {
-          type: 'line',
-          label: 'Gust (mph)',
-          data: rows.map(r => r.gust),
-          borderColor: '#7dd3fc',
-          borderWidth: 1.5,
-          borderDash: [4, 3],
-          pointRadius: 0,
-          tension: 0.3,
-          fill: false,
-          spanGaps: true,
-        },
-      ],
-    },
-    options: {
-      ...sharedOpts,
-      scales: {
-        x: { grid: { color: GRID }, ticks: { color: TICK, maxTicksLimit: 8, maxRotation: 0, autoSkip: true } },
-        y: { grid: { color: GRID }, ticks: { color: '#38bdf8', callback: v => `${v} mph` }, beginAtZero: true },
+      'chart-precip-rh': {
+        left:  { color: '#38bdf8', fmt: v => `${v}%`, domain: [0, 100] },
+        right: { color: '#2dd4bf', fmt: v => `${v}%`, domain: [0, 100] },
+        series: [
+          { key: 'precip', kind: 'bar',  axis: 'left',  color: 'rgba(56,189,248,0.40)', stroke: 'rgba(56,189,248,0.60)', label: 'Precip', unit: '%' },
+          { key: 'rh',     kind: 'line', axis: 'right', color: '#2dd4bf', fill: 'rgba(45,212,191,0.08)', width: 2, label: 'Humidity', unit: '%' },
+        ],
       },
-    },
-  });
-
-  // ── Chart 3: Precip Probability + Relative Humidity ───────────────────
-  new Chart(document.getElementById('chart-precip-rh') as HTMLCanvasElement, {
-    data: {
-      labels,
-      datasets: [
-        {
-          type: 'bar',
-          label: 'Precip Prob (%)',
-          data: rows.map(r => r.precip),
-          yAxisID: 'yPrecip',
-          backgroundColor: 'rgba(56,189,248,0.40)',
-          borderColor: 'rgba(56,189,248,0.60)',
-          borderWidth: 1,
-        },
-        {
-          type: 'line',
-          label: 'Humidity (%)',
-          data: rows.map(r => r.rh),
-          yAxisID: 'yRH',
-          borderColor: '#2dd4bf',
-          backgroundColor: 'rgba(45,212,191,0.08)',
-          borderWidth: 2,
-          pointRadius: 0,
-          tension: 0.3,
-          fill: true,
-          spanGaps: true,
-        },
-      ],
-    },
-    options: {
-      ...sharedOpts,
-      scales: {
-        x: { grid: { color: GRID }, ticks: { color: TICK, maxTicksLimit: 8, maxRotation: 0, autoSkip: true } },
-        yPrecip: { position: 'left',  min: 0, max: 100, grid: { color: GRID }, ticks: { color: '#38bdf8', callback: v => `${v}%` } },
-        yRH:     { position: 'right', min: 0, max: 100, grid: { drawOnChartArea: false }, ticks: { color: '#2dd4bf', callback: v => `${v}%` } },
+      'chart-snow': {
+        left:  { color: '#cbd5e1', fmt: v => `${v}"`, min0: true },
+        right: { color: '#a78bfa', fmt: v => `${Number(v).toLocaleString()}ft`, min0: true },
+        series: [
+          { key: 'snow',    kind: 'bar',  axis: 'left',  color: 'rgba(203,213,225,0.45)', stroke: 'rgba(203,213,225,0.65)', label: 'Snowfall', unit: '"', dec: 3 },
+          { key: 'snowLvl', kind: 'line', axis: 'right', color: '#a78bfa', fill: 'rgba(167,139,250,0.08)', width: 2, label: 'Snow Level', unit: ' ft', thousands: true },
+        ],
       },
-    },
-  });
+    };
 
-  // ── Chart 4: Snowfall Amount + Snow Level ─────────────────────────────
-  new Chart(document.getElementById('chart-snow') as HTMLCanvasElement, {
-    data: {
-      labels,
-      datasets: [
-        {
-          type: 'bar',
-          label: 'Snowfall (in/hr)',
-          data: rows.map(r => r.snow),
-          yAxisID: 'ySnow',
-          backgroundColor: 'rgba(203,213,225,0.45)',
-          borderColor: 'rgba(203,213,225,0.65)',
-          borderWidth: 1,
-        },
-        {
-          type: 'line',
-          label: 'Snow Level (ft)',
-          data: rows.map(r => r.snowLvl),
-          yAxisID: 'yLvl',
-          borderColor: '#a78bfa',
-          backgroundColor: 'rgba(167,139,250,0.08)',
-          borderWidth: 2,
-          pointRadius: 0,
-          tension: 0.3,
-          fill: true,
-          spanGaps: true,
-        },
-      ],
-    },
-    options: {
-      ...sharedOpts,
-      scales: {
-        x: { grid: { color: GRID }, ticks: { color: TICK, maxTicksLimit: 8, maxRotation: 0, autoSkip: true } },
-        ySnow: { position: 'left',  min: 0, grid: { color: GRID }, ticks: { color: '#cbd5e1', callback: v => `${v}"` } },
-        yLvl:  { position: 'right', min: 0, grid: { drawOnChartArea: false }, ticks: { color: '#a78bfa', callback: v => `${Number(v).toLocaleString()}ft` } },
-      },
-    },
-  });
+    const M = { left: 40, right: 46, top: 8, bottom: 18 };
+
+    function draw(hostId: string, cfg: PanelCfg) {
+      const host = document.getElementById(hostId);
+      if (!host) return;
+      let tip = host.querySelector('.de-tip') as HTMLDivElement | null;
+      if (!tip) { tip = document.createElement('div'); tip.className = 'de-tip'; host.appendChild(tip); }
+
+      const width = Math.max(280, host.clientWidth || 280);
+      const height = Math.max(140, host.clientHeight || 208);
+      host.querySelectorAll('svg').forEach(n => n.remove());
+
+      const hasRight = !!cfg.right;
+      const maxX = width - (hasRight ? M.right : 14);
+      const svg = d3.select(host).append('svg').attr('width', width).attr('height', height);
+      const plotBottom = height - M.bottom;
+      const x = d3.scaleTime().domain([times[0], times[times.length - 1]]).range([M.left, maxX]);
+      const innerWidth = maxX - M.left;
+
+      const leftKeys = cfg.series.filter(s => s.axis === 'left').map(s => s.key);
+      const rightKeys = cfg.series.filter(s => s.axis === 'right').map(s => s.key);
+      const yL = d3.scaleLinear().domain(cfg.left.domain ?? domainFor(leftKeys, cfg.left.min0)).nice().range([plotBottom, M.top]);
+      const yR = cfg.right ? d3.scaleLinear().domain(cfg.right.domain ?? domainFor(rightKeys, cfg.right.min0)).nice().range([plotBottom, M.top]) : null;
+      const yOf = (s: Ser) => (s.axis === 'right' && yR) ? yR : yL;
+
+      leftAxis(svg.append('g'), { y: yL, fmt: cfg.left.fmt, color: cfg.left.color, x0: M.left, innerWidth });
+      if (cfg.right && yR) rightAxis(svg.append('g'), { y: yR, fmt: cfg.right.fmt, color: cfg.right.color, xRight: maxX });
+
+      const barW = Math.max(1, halfStep(x, times) * 1.4);
+      for (const s of cfg.series.filter(s => s.kind === 'bar')) {
+        const y = yOf(s);
+        const base = y(y.domain()[0]);
+        rows.forEach((r, i) => {
+          const v = r[s.key];
+          if (v == null || v <= 0) return;
+          svg.append('rect').attr('x', x(times[i]) - barW / 2).attr('y', y(v))
+            .attr('width', barW).attr('height', base - y(v))
+            .attr('fill', s.color).attr('stroke', s.stroke ?? 'none').attr('stroke-width', s.stroke ? 1 : 0);
+        });
+      }
+
+      const focus: FocusSeries[] = [];
+      for (const s of cfg.series.filter(s => s.kind === 'line')) {
+        const y = yOf(s);
+        const data = vals(s.key);
+        if (s.fill) svg.append('path').attr('d', areaPath(data, x, times, y, y(y.domain()[0])) ?? '').attr('fill', s.fill);
+        svg.append('path').attr('d', linePath(data, x, times, y) ?? '')
+          .attr('fill', 'none').attr('stroke', s.color).attr('stroke-width', s.width ?? 2)
+          .attr('stroke-dasharray', s.dash ? s.dash.join(',') : null);
+        focus.push({ top: 0, y, color: s.color, data });
+      }
+
+      timeAxis(svg, { x, yTop: plotBottom, ticks: d3.timeHour.every(12) });
+      attachHover(svg, {
+        x, times, minX: M.left, maxX, plotBottom, focus,
+        onHover: (i, px) => showTip(host, tip!, cfg, i, px),
+        onLeave: () => { tip!.style.display = 'none'; },
+      });
+    }
+
+    function showTip(host: HTMLElement, tip: HTMLDivElement, cfg: PanelCfg, i: number, px: number) {
+      const rowsHtml = cfg.series.map(s => {
+        const v = rows[i][s.key];
+        if (v == null) return '';
+        const val = s.thousands ? Math.round(v).toLocaleString() : v.toFixed(s.dec ?? 0);
+        return `<div class="tip-row"><span><span class="tip-swatch" style="background:${s.color}"></span>${s.label}</span><span>${val}${s.unit}</span></div>`;
+      }).filter(Boolean).join('');
+      const title = times[i].toLocaleString('en-US', { weekday: 'short', hour: 'numeric', hour12: true });
+      tip.innerHTML = `<div class="tip-title">${title}</div>${rowsHtml}`;
+      tip.style.display = 'block';
+      const hostW = host.clientWidth;
+      const tw = tip.offsetWidth;
+      let left = px + 12;
+      if (left + tw > hostW) left = px - tw - 12;
+      tip.style.left = `${Math.max(0, left)}px`;
+      tip.style.top = '4px';
+    }
+
+    function renderAll() { for (const [id, cfg] of Object.entries(panels)) draw(id, cfg); }
+    renderAll();
+    let rt: number | undefined;
+    window.addEventListener('resize', () => { clearTimeout(rt); rt = window.setTimeout(renderAll, 150); });
+  }
 </script>
