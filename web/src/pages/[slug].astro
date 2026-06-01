@@ -3,21 +3,25 @@ import Layout from '../layouts/Layout.astro';
 import ForecastChart from '../components/ForecastChart.astro';
 import SummaryCard from '../components/SummaryCard.astro';
 import PeriodForecast from '../components/PeriodForecast.astro';
-import { fetchAreas, fetchForecast, fetchLatestObservation, fetchPeriodForecast } from '../lib/api';
-import type { ForecastRow, ObservationRow, PeriodForecastRow } from '../lib/api';
+import { fetchAreas, fetchForecast, fetchLatestObservation, fetchPeriodForecast, fetchForecastDiscussion } from '../lib/api';
+import type { ForecastRow, ObservationRow, PeriodForecastRow, ForecastDiscussion } from '../lib/api';
 
 const { slug } = Astro.params;
 if (!slug) return Astro.redirect('/');
 
-// Resolve point name + area name from /api/areas
+// Resolve point name + area name + coordinates from /api/areas
 const areas = await fetchAreas();
 let pointName = '';
 let areaName = '';
+let pointLat = 0;
+let pointLon = 0;
 for (const area of areas) {
   const match = area.points.find(p => p.slug === slug);
   if (match) {
     pointName = match.name;
     areaName = area.name;
+    pointLat = match.latitude;
+    pointLon = match.longitude;
     break;
   }
 }
@@ -29,13 +33,15 @@ if (!pointName) {
 let forecast: ForecastRow[] = [];
 let periods: PeriodForecastRow[] = [];
 let observation: ObservationRow | null = null;
+let discussion: ForecastDiscussion | null = null;
 let error: string | null = null;
 
 try {
-  [forecast, periods, observation] = await Promise.all([
+  [forecast, periods, observation, discussion] = await Promise.all([
     fetchForecast(slug),
     fetchPeriodForecast(slug),
     fetchLatestObservation(slug),
+    fetchForecastDiscussion(slug),
   ]);
 } catch (e) {
   error = e instanceof Error ? e.message : 'Failed to load weather data';
@@ -108,7 +114,15 @@ const current = forecast[0] ?? null;
     )}
 
     <!-- Summary card -->
-    <SummaryCard pointName={pointName} observation={observation} forecast={forecast} />
+    <SummaryCard
+      pointName={pointName}
+      observation={observation}
+      forecast={forecast}
+      periods={periods}
+      discussion={discussion}
+      lat={pointLat}
+      lon={pointLon}
+    />
 
     <!-- Current conditions panel -->
     <div class="mb-6 rounded-xl border border-slate-800 bg-slate-900 p-6">

@@ -3,10 +3,9 @@ import Layout from '../../layouts/Layout.astro';
 import ObsTable from '../../components/ObsTable.astro';
 import SummaryCard from '../../components/SummaryCard.astro';
 import ForecastTabs from '../../components/ForecastTabs.astro';
-import SunMoonCard from '../../components/SunMoonCard.astro';
 import SWECard from '../../components/SWECard.astro';
-import { fetchOverview, fetchForecast, fetchLatestObservation, fetchPeriodForecast } from '../../lib/api';
-import type { AreaOverview, ForecastRow, ObservationRow, PeriodForecastRow } from '../../lib/api';
+import { fetchOverview, fetchForecast, fetchLatestObservation, fetchPeriodForecast, fetchForecastDiscussion } from '../../lib/api';
+import type { AreaOverview, ForecastRow, ObservationRow, PeriodForecastRow, ForecastDiscussion } from '../../lib/api';
 
 const { area } = Astro.params;
 if (!area) return Astro.redirect('/');
@@ -29,19 +28,22 @@ let areaData: AreaOverview | undefined;
 let repForecast: ForecastRow[] = [];
 let repObservation: ObservationRow | null = null;
 let repPeriods: PeriodForecastRow[] = [];
+let repDiscussion: ForecastDiscussion | null = null;
 let error: string | null = null;
 
 try {
-  const [allAreas, forecast, observation, periods] = await Promise.all([
+  const [allAreas, forecast, observation, periods, discussion] = await Promise.all([
     fetchOverview(),
     rep ? fetchForecast(rep.slug) : Promise.resolve([]),
     rep ? fetchLatestObservation(rep.slug) : Promise.resolve(null),
     rep ? fetchPeriodForecast(rep.slug) : Promise.resolve([]),
+    rep ? fetchForecastDiscussion(rep.slug) : Promise.resolve(null),
   ]);
   areaData = allAreas.find(a => a.slug === area);
   repForecast = forecast;
   repObservation = observation;
   repPeriods = periods;
+  repDiscussion = discussion;
 } catch (e) {
   error = e instanceof Error ? e.message : 'Failed to load weather data';
 }
@@ -65,12 +67,18 @@ if (!areaData && !error) {
     )}
 
     {rep && (
-      <SummaryCard pointName={rep.name} observation={repObservation} forecast={repForecast} />
+      <SummaryCard
+        pointName={rep.name}
+        observation={repObservation}
+        forecast={repForecast}
+        periods={repPeriods}
+        discussion={repDiscussion}
+        lat={rep.lat}
+        lon={rep.lon}
+      />
     )}
 
     <ForecastTabs periods={repPeriods} forecast={repForecast} area={area} lat={rep?.lat} lon={rep?.lon} />
-
-    {rep && <SunMoonCard lat={rep.lat} lon={rep.lon} />}
 
     {areaData && (
       <ObsTable points={areaData.points} areaSlug={area} />
