@@ -6,6 +6,7 @@ import {
   fetchPeriodForecast,
   fetchLatestObservation,
   fetchActiveAlerts,
+  fetchAreaForecastDiscussion,
   type ForecastHour,
   type ForecastPeriod,
   type LatestObservation,
@@ -61,6 +62,7 @@ export async function poll(): Promise<{ forecasts: number; observations: number 
   }
 
   const alertCount = await pollAlerts();
+  await pollDiscussions();
 
   const pruned = pruneOldData();
   console.log(
@@ -261,6 +263,40 @@ function writeAlerts(alerts: NwsAlert[]): number {
   });
   tx();
   return alerts.length;
+}
+
+// --- Forecast discussion polling --------------------------------------------
+
+// Fetch the latest Area Forecast Discussion for every distinct NWS office among
+// our resolved points (typically HNX + REV) and upsert one row per office.
+// Best-effort: a failure for one office never aborts the poll cycle.
+async function pollDiscussions(): Promise<void> {
+  const db = getDb();
+  const offices = db
+    .prepare(`SELECT DISTINCT grid_id FROM points WHERE grid_id IS NOT NULL`)
+    .all() as { grid_id: string }[];
+
+  for (const { grid_id } of offices) {
+    try {
+      const afd = await fetchAreaForecastDiscussion(grid_id);
+      if (afd) writeDiscussion(afd.office, afd.issuanceTime, afd.text);
+    } catch (err) {
+      console.warn(`  ${grid_id}: forecast discussion failed — ${(err as Error).message}`);
+    }
+  }
+}
+
+function writeDiscussion(office: string, issuanceTime: string, text: string): void {
+  getDb()
+    .prepare(
+      `INSERT INTO forecast_discussions (office, issuance_time, product_text, fetched_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(office) DO UPDATE SET
+         issuance_time = excluded.issuance_time,
+         product_text = excluded.product_text,
+         fetched_at = excluded.fetched_at`
+    )
+    .run(office, issuanceTime, text, new Date().toISOString());
 }
 
 // --- Synoptic polling -------------------------------------------------------

@@ -1,14 +1,20 @@
 ---
-import type { ForecastRow, ObservationRow } from '../lib/api';
+import type { ForecastRow, ObservationRow, PeriodForecastRow, ForecastDiscussion } from '../lib/api';
 import { getHolidaysForDate } from '../lib/holidays';
+import { nwsIcon } from '../lib/nwsIcons';
+import { getSunData, getMoonData, formatPacific, formatDayLength } from '../lib/sunMoon';
 
 interface Props {
   pointName: string;
   observation: ObservationRow | null;
   forecast: ForecastRow[];
+  periods?: PeriodForecastRow[];
+  discussion?: ForecastDiscussion | null;
+  lat: number;
+  lon: number;
 }
 
-const { pointName, observation, forecast } = Astro.props;
+const { observation, forecast, periods = [], discussion = null, lat, lon } = Astro.props;
 
 // --- Pacific-time date for holiday detection (all locations are in California) ---
 const dtf = new Intl.DateTimeFormat('en-US', {
@@ -18,11 +24,9 @@ const dtf = new Intl.DateTimeFormat('en-US', {
 });
 const parts = dtf.formatToParts(new Date());
 const get = (t: string) => parts.find(p => p.type === t)?.value ?? '0';
-const pacificHour = parseInt(get('hour'));
 const localDate = new Date(parseInt(get('year')), parseInt(get('month')) - 1, parseInt(get('day')));
 
 const holidays = getHolidaysForDate(localDate);
-const isDay = pacificHour >= 6 && pacificHour < 18;
 
 // --- Helper functions ---
 
@@ -32,107 +36,83 @@ function windDir16(deg: number | null): string {
   return dirs[Math.round(deg / 22.5) % 16];
 }
 
-function skyDesc(cover: number | null, day: boolean): string {
-  if (cover === null) return 'variable clouds';
-  if (cover < 12)  return day ? 'sunny' : 'clear';
-  if (cover < 25)  return day ? 'mostly sunny' : 'mostly clear';
-  if (cover < 50)  return day ? 'partly sunny' : 'partly cloudy';
-  if (cover < 75)  return 'mostly cloudy';
-  return 'overcast';
+// --- Current observed conditions (falls back to the current forecast hour) ---
+const src = observation ?? forecast[0] ?? null;
+const cond = src
+  ? {
+      temp: src.air_temp,
+      humidity: src.relative_humidity,
+      windSpeed: src.wind_speed,
+      windDir: src.wind_direction,
+    }
+  : null;
+
+// --- NWS worded forecast (first few future periods) ---
+const wordedPeriods = periods
+  .filter(p => p.detailed_forecast && p.detailed_forecast.trim().length > 0)
+  .slice(0, 4);
+
+// --- Compact multi-day strip (the days beyond the worded periods) ---
+const pacificDate = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }); // YYYY-MM-DD
+const pacificWeekday = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', weekday: 'short' });
+
+interface DaySummary {
+  key: string; label: string;
+  high: number | null; low: number | null;
+  icon: string | null; isDayIcon: boolean; precip: number;
+}
+const dayMap = new Map<string, DaySummary>();
+for (const p of periods) {
+  const key = pacificDate(p.start_time);
+  let e = dayMap.get(key);
+  if (!e) {
+    e = { key, label: pacificWeekday(p.start_time), high: null, low: null, icon: null, isDayIcon: false, precip: 0 };
+    dayMap.set(key, e);
+  }
+  if (p.is_daytime === 1) {
+    e.high = p.temperature;
+    e.icon = p.icon_url; e.isDayIcon = true;
+  } else {
+    e.low = p.temperature;
+    if (e.icon === null) { e.icon = p.icon_url; e.isDayIcon = false; }
+  }
+  e.precip = Math.max(e.precip, p.precip_prob ?? 0);
+}
+const wordedDates = new Set(wordedPeriods.map(p => pacificDate(p.start_time)));
+const upcomingDays = [...dayMap.values()].filter(d => !wordedDates.has(d.key)).slice(0, 5);
+
+// --- Sun & Moon (compact) ---
+const sun = getSunData(new Date(), lat, lon);
+const moon = getMoonData(new Date(), lat, lon);
+
+// --- Area Forecast Discussion: split into .SECTION... blocks ---
+interface AfdSection { name: string; body: string; }
+
+function parseAfd(text: string): AfdSection[] {
+  const headerRe = /^\.([A-Z][A-Z0-9 .\/&'-]*?)\.\.\./gm;
+  const heads: { name: string; start: number; bodyStart: number }[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = headerRe.exec(text)) !== null) {
+    heads.push({ name: m[1].trim(), start: m.index, bodyStart: m.index + m[0].length });
+  }
+  return heads.map((h, i) => {
+    const end = i + 1 < heads.length ? heads[i + 1].start : text.length;
+    const body = text.slice(h.bodyStart, end)
+      .replace(/^\s*(&&|\$\$)\s*$/gm, '') // drop section/product terminators
+      .trim();
+    return { name: h.name, body };
+  }).filter(s => s.body.length > 0);
 }
 
-function currentWindSentence(speed: number | null, dir: number | null, gust: number | null): string {
-  if (!speed || speed < 3) return 'Calm.';
-  const d = windDir16(dir);
-  let s = `Winds ${Math.round(speed)} mph ${d}`;
-  if (gust !== null && gust > speed + 5) s += `, gusting to ${Math.round(gust)} mph`;
-  return s + '.';
-}
-
-function forecastWindSentence(speed: number, dir: number | null, gust: number): string {
-  if (speed < 3) return 'Light and variable winds.';
-  const d = windDir16(dir);
-  let s = speed < 7 ? `Light ${d} winds around ${Math.round(speed)} mph` : `${d} winds ${Math.round(speed)} mph`;
-  if (gust > speed + 5) s += `, gusting to ${Math.round(gust)} mph`;
-  return s + '.';
-}
-
-// --- Current conditions prose ---
-const condSentences: string[] = [];
-
-if (observation) {
-  const time = new Date(observation.observed_at).toLocaleString('en-US', {
-    hour: 'numeric', minute: '2-digit',
-    timeZone: 'America/Los_Angeles', timeZoneName: 'short',
-  });
-  const temp = observation.air_temp !== null ? `${Math.round(observation.air_temp)}°F` : '—';
-  condSentences.push(`At ${time}, the temperature in ${pointName} was ${temp}.`);
-  condSentences.push(currentWindSentence(observation.wind_speed, observation.wind_direction, observation.wind_gust));
-
-  if (observation.precip_last_hour !== null && observation.precip_last_hour > 0.005) {
-    const p = observation.precip_last_hour;
-    condSentences.push(`Precipitation: ${p < 0.01 ? 'Trace' : `${p.toFixed(2)}"`} last hour.`);
-  }
-
-  if (observation.snow_depth !== null && observation.snow_depth > 0) {
-    condSentences.push(`Snow depth: ${observation.snow_depth.toFixed(1)}".`);
-  }
-} else if (forecast.length > 0) {
-  // Fall back to current forecast row when no observation is available
-  const cur = forecast[0];
-  const temp = cur.air_temp !== null ? `${Math.round(cur.air_temp)}°F` : '—';
-  condSentences.push(`Current forecast for ${pointName}: ${temp}.`);
-  condSentences.push(currentWindSentence(cur.wind_speed, cur.wind_direction, cur.wind_gust));
-}
-
-// --- Period label (Pacific time) ---
-let periodLabel: string;
-if      (pacificHour >= 6  && pacificHour < 12) periodLabel = 'This morning';
-else if (pacificHour >= 12 && pacificHour < 18) periodLabel = 'This afternoon';
-else if (pacificHour >= 18)                      periodLabel = 'Tonight';
-else                                             periodLabel = 'Early this morning';
-
-// --- Forecast prose (next 12 hours) ---
-const fcstSentences: string[] = [];
-const next12 = forecast.slice(0, 12);
-
-if (next12.length > 0) {
-  const validSky   = next12.map(r => r.sky_cover).filter((v): v is number => v !== null);
-  const avgSky     = validSky.length ? validSky.reduce((a, b) => a + b, 0) / validSky.length : null;
-
-  const validTemps = next12.map(r => r.air_temp).filter((v): v is number => v !== null);
-  const minT       = validTemps.length ? Math.min(...validTemps) : null;
-  const maxT       = validTemps.length ? Math.max(...validTemps) : null;
-  const keyTemp    = isDay ? maxT : minT;
-  const tempLabel  = isDay ? 'high' : 'low';
-
-  const maxPrecipProb = Math.max(0, ...next12.map(r => r.precip_prob ?? 0));
-  const maxWind       = Math.max(0, ...next12.map(r => r.wind_speed ?? 0));
-  const maxGust       = Math.max(0, ...next12.map(r => r.wind_gust ?? 0));
-  const peakRow       = next12.reduce((best, r) => (r.wind_speed ?? 0) > (best.wind_speed ?? 0) ? r : best, next12[0]);
-  const totalSnow     = next12.reduce((sum, r) => sum + (r.snowfall_amount ?? 0), 0);
-
-  let line1 = `${periodLabel} will be ${skyDesc(avgSky, isDay)}`;
-  if (keyTemp !== null) line1 += `, with a ${tempLabel} around ${Math.round(keyTemp)}°F`;
-  line1 += '.';
-  fcstSentences.push(line1);
-
-  if (maxWind >= 3) {
-    fcstSentences.push(forecastWindSentence(maxWind, peakRow.wind_direction, maxGust));
-  }
-
-  if (maxPrecipProb >= 10) {
-    const precipType = minT !== null && minT < 32 ? 'snow' :
-                       minT !== null && minT < 34 ? 'wintry mix' : 'precipitation';
-    fcstSentences.push(`${Math.round(maxPrecipProb)}% chance of ${precipType}.`);
-  }
-
-  if (totalSnow >= 0.1) {
-    fcstSentences.push(`Possible snowfall: up to ${totalSnow.toFixed(1)}" expected.`);
-  }
-}
-
-const hasContent = condSentences.length > 0 || fcstSentences.length > 0;
+const afdSections = discussion ? parseAfd(discussion.product_text) : [];
+const afdIssued = discussion?.issuance_time
+  ? new Date(discussion.issuance_time).toLocaleString('en-US', {
+      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+      timeZone: 'America/Los_Angeles', timeZoneName: 'short',
+    })
+  : null;
 ---
 
 <div class="mb-6 overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
@@ -142,29 +122,197 @@ const hasContent = condSentences.length > 0 || fcstSentences.length > 0;
     </div>
   )}
 
-  <div class="p-6">
-    <h2 class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
-      Summary
-    </h2>
-
-    {hasContent ? (
-      <div class="space-y-3">
-        {condSentences.length > 0 && (
-          <p class="leading-relaxed text-slate-200">
-            {condSentences.join(' ')}
-          </p>
-        )}
-        {fcstSentences.length > 0 && (
-          <>
-            {condSentences.length > 0 && <div class="border-t border-slate-800" />}
-            <p class="leading-relaxed text-slate-300">
-              {fcstSentences.join(' ')}
-            </p>
-          </>
-        )}
-      </div>
+  <div class="flex flex-wrap items-center gap-x-6 gap-y-3 p-6">
+    {cond ? (
+      <>
+        <span class="flex items-center gap-2" title="Temperature">
+          <i class="wi wi-thermometer text-xl text-amber-400" aria-hidden="true"></i>
+          {cond.temp !== null
+            ? <span class="text-lg font-semibold tabular-nums text-slate-100" data-unit="temp" data-val={cond.temp}>{Math.round(cond.temp)}°F</span>
+            : <span class="text-slate-500">—</span>}
+        </span>
+        <span class="flex items-center gap-2" title="Relative humidity">
+          <i class="wi wi-humidity text-xl text-sky-400" aria-hidden="true"></i>
+          {cond.humidity !== null
+            ? <span class="text-lg tabular-nums text-slate-200">{Math.round(cond.humidity)}%</span>
+            : <span class="text-slate-500">—</span>}
+        </span>
+        <span class="flex items-center gap-2" title="Wind">
+          <i class="wi wi-strong-wind text-xl text-slate-300" aria-hidden="true"></i>
+          {cond.windSpeed !== null && cond.windSpeed >= 3
+            ? <span class="text-lg text-slate-200">
+                <span class="tabular-nums" data-unit="speed" data-val={cond.windSpeed}>{Math.round(cond.windSpeed)} mph</span>
+                {' '}{windDir16(cond.windDir)}
+              </span>
+            : <span class="text-lg text-slate-200">Calm</span>}
+        </span>
+      </>
     ) : (
-      <p class="text-sm text-slate-500">No weather data available yet.</p>
+      <p class="text-sm text-slate-500">No current conditions available yet.</p>
     )}
   </div>
+
+  {wordedPeriods.length > 0 && (
+    <div class="grid grid-cols-1 gap-4 border-t border-slate-800 px-6 py-5 sm:grid-cols-2 sm:gap-x-8">
+      {wordedPeriods.map((p) => {
+        const { wiClass, colorClass } = nwsIcon(p.icon_url, p.is_daytime === 1);
+        return (
+          <div class="flex gap-3">
+            <i class={`${wiClass} ${colorClass} mt-0.5 w-6 shrink-0 text-center text-xl leading-none`} aria-hidden="true" />
+            <div>
+              <span class="font-semibold text-slate-200">{p.name}</span>
+              <p class="mt-0.5 text-sm leading-relaxed text-slate-300">{p.detailed_forecast}</p>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  )}
+
+  {upcomingDays.length > 0 && (
+    <div class="flex gap-2 overflow-x-auto border-t border-slate-800 px-6 py-4 [justify-content:safe_center] sm:overflow-visible">
+      {upcomingDays.map((d) => {
+        const { wiClass, colorClass } = nwsIcon(d.icon, d.isDayIcon);
+        return (
+          <div class="flex w-14 shrink-0 flex-col items-center gap-1 text-center sm:w-auto sm:flex-1">
+            <span class="text-xs font-medium text-slate-400">{d.label}</span>
+            <i class={`${wiClass} ${colorClass} text-xl leading-none`} aria-hidden="true" />
+            <div class="leading-tight">
+              {d.high !== null && (
+                <div class="text-sm font-semibold tabular-nums text-slate-200">
+                  <span data-unit="temp" data-val={d.high}>{Math.round(d.high)}°F</span>
+                </div>
+              )}
+              {d.low !== null && (
+                <div class="text-xs tabular-nums text-slate-400">
+                  <span data-unit="temp" data-val={d.low}>{Math.round(d.low)}°F</span>
+                </div>
+              )}
+            </div>
+            <span class={`text-xs tabular-nums ${d.precip >= 20 ? 'text-blue-400' : 'text-slate-600'}`}>
+              {d.precip > 0 ? `${Math.round(d.precip)}%` : '—'}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  )}
+
+  <div class="grid grid-cols-1 divide-y divide-slate-800 border-t border-slate-800 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+
+    <!-- Sun column -->
+    <div class="flex flex-col px-6 py-5">
+      <dl class="mb-3 space-y-2 text-sm">
+        <div class="flex items-center justify-between gap-3">
+          <dt class="flex items-center gap-2 text-slate-400">
+            <i class="wi wi-horizon w-5 text-center text-base text-amber-400/60" aria-hidden="true"></i>Dawn
+          </dt>
+          <dd class="tabular-nums text-slate-300">{formatPacific(sun.dawn)}</dd>
+        </div>
+        <div class="flex items-center justify-between gap-3">
+          <dt class="flex items-center gap-2 text-amber-300">
+            <i class="wi wi-sunrise w-5 text-center text-base text-amber-400" aria-hidden="true"></i>Sunrise
+          </dt>
+          <dd class="tabular-nums font-medium text-amber-300">{formatPacific(sun.sunrise)}</dd>
+        </div>
+        <div class="flex items-center justify-between gap-3">
+          <dt class="flex items-center gap-2 text-slate-400">
+            <i class="wi wi-day-sunny w-5 text-center text-base text-amber-400/60" aria-hidden="true"></i>Solar Noon
+          </dt>
+          <dd class="tabular-nums text-slate-300">{formatPacific(sun.solarNoon)}</dd>
+        </div>
+        <div class="flex items-center justify-between gap-3">
+          <dt class="flex items-center gap-2 text-amber-300">
+            <i class="wi wi-sunset w-5 text-center text-base text-amber-400" aria-hidden="true"></i>Sunset
+          </dt>
+          <dd class="tabular-nums font-medium text-amber-300">{formatPacific(sun.sunset)}</dd>
+        </div>
+        <div class="flex items-center justify-between gap-3">
+          <dt class="flex items-center gap-2 text-slate-400">
+            <i class="wi wi-horizon-alt w-5 text-center text-base text-amber-400/60" aria-hidden="true"></i>Dusk
+          </dt>
+          <dd class="tabular-nums text-slate-300">{formatPacific(sun.dusk)}</dd>
+        </div>
+      </dl>
+
+      <div class="mt-auto border-t border-slate-800 pt-3">
+        <div class="flex items-center justify-between gap-3">
+          <span class="text-xs font-semibold uppercase tracking-wider text-slate-500">Daylight</span>
+          <span class="tabular-nums text-sm font-semibold text-slate-300">{formatDayLength(sun.dayLengthMinutes)}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Moon column -->
+    <div class="flex flex-col px-6 py-5">
+      <div class="mb-4 flex items-center justify-center gap-4 sm:justify-start">
+        <i class={`wi ${moon.phaseIcon} text-5xl leading-none text-slate-200`} aria-hidden="true"></i>
+        <div>
+          <div class="text-sm font-semibold text-slate-200">{moon.phaseName}</div>
+          <div class="mt-0.5 text-xs text-slate-400">{moon.illumination}% illuminated</div>
+        </div>
+      </div>
+
+      <dl class="space-y-2 text-sm">
+        {moon.moonrise && (
+          <div class="flex items-center justify-between gap-3">
+            <dt class="flex items-center gap-2 text-slate-400">
+              <i class="wi wi-moonrise w-5 text-center text-base text-slate-400" aria-hidden="true"></i>Moonrise
+            </dt>
+            <dd class="tabular-nums text-slate-300">{formatPacific(moon.moonrise)}</dd>
+          </div>
+        )}
+        {moon.moonset && (
+          <div class="flex items-center justify-between gap-3">
+            <dt class="flex items-center gap-2 text-slate-400">
+              <i class="wi wi-moonset w-5 text-center text-base text-slate-400" aria-hidden="true"></i>Moonset
+            </dt>
+            <dd class="tabular-nums text-slate-300">{formatPacific(moon.moonset)}</dd>
+          </div>
+        )}
+      </dl>
+
+      <div class="mt-auto border-t border-slate-800 pt-3">
+        <div class="flex items-center justify-between gap-3">
+          <span class="text-xs font-semibold uppercase tracking-wider text-slate-500">Next Phase</span>
+          <span class="text-sm text-slate-300">
+            {moon.nextPhaseName}
+            {moon.daysToNextPhase === 0
+              ? ' · tonight'
+              : moon.daysToNextPhase === 1
+              ? ' · tomorrow'
+              : ` · in ${moon.daysToNextPhase} days`}
+          </span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  {afdSections.length > 0 && (
+    <details class="group border-t border-slate-800 [&_summary::-webkit-details-marker]:hidden">
+      <summary class="cursor-pointer list-none px-6 py-4">
+        <div class="flex items-center justify-between gap-3">
+          <span class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+            Forecast Discussion
+          </span>
+          <span class="text-xs text-slate-500">
+            {discussion?.office}{afdIssued && ` · ${afdIssued}`}
+          </span>
+        </div>
+      </summary>
+
+      <div class="space-y-4 px-6 pb-6">
+        {afdSections.map((s) => (
+          <div>
+            <h3 class="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">{s.name}</h3>
+            <p class="whitespace-pre-wrap text-sm leading-relaxed text-slate-400">{s.body}</p>
+          </div>
+        ))}
+      </div>
+    </details>
+  )}
 </div>
