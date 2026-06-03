@@ -98,6 +98,25 @@ export async function fetchPeriodForecast(slug: string): Promise<PeriodForecastR
   return res.json() as Promise<PeriodForecastRow[]>;
 }
 
+// --- Forecast discussion (AFD) ----------------------------------------------
+
+export interface ForecastDiscussion {
+  office: string;
+  issuance_time: string | null;
+  product_text: string;
+  fetched_at: string;
+}
+
+export async function fetchForecastDiscussion(slug: string): Promise<ForecastDiscussion | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/points/${encodeURIComponent(slug)}/forecast/discussion`);
+    if (!res.ok) return null;
+    return res.json() as Promise<ForecastDiscussion>;
+  } catch {
+    return null;
+  }
+}
+
 // --- Alerts -----------------------------------------------------------------
 
 export interface AlertRow {

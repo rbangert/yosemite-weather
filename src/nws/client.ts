@@ -10,7 +10,7 @@ const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
 // Fetch with exponential backoff. Retries network errors and transient 5xx/429
 // responses (honoring Retry-After when present), but throws immediately on
 // permanent failures like 404.
-async function nwsFetch(url: string): Promise<any> {
+async function nwsFetch(url: string, accept = "application/geo+json"): Promise<any> {
   const { retryMaxAttempts, retryBaseDelayMs } = config;
 
   for (let attempt = 0; ; attempt++) {
@@ -18,7 +18,7 @@ async function nwsFetch(url: string): Promise<any> {
       const res = await fetch(url, {
         headers: {
           "User-Agent": config.nwsUserAgent,
-          Accept: "application/geo+json",
+          Accept: accept,
         },
       });
 
@@ -331,6 +331,41 @@ export async function fetchObservationHistory(
       snowDepth: conv(p.snowDepth, mmToIn),
     }))
     .sort((a, b) => a.observedAt.localeCompare(b.observedAt));
+}
+
+// --- Area Forecast Discussion (AFD) -----------------------------------------
+
+export interface ForecastDiscussion {
+  office: string;       // issuing WFO, e.g. "HNX" (== gridId)
+  issuanceTime: string; // ISO timestamp
+  text: string;         // raw product text
+}
+
+// Fetch the latest Area Forecast Discussion for an NWS office (WFO). Two-step:
+// list the office's AFD products (newest first), then fetch that product's text.
+// Returns null when the office has no AFD product available. The products API
+// serves application/ld+json, not the geo+json the gridpoint endpoints use.
+export async function fetchAreaForecastDiscussion(
+  office: string
+): Promise<ForecastDiscussion | null> {
+  const list = await nwsFetch(
+    `${config.nwsBaseUrl}/products/types/AFD/locations/${office}`,
+    "application/ld+json"
+  );
+  const latest = list?.["@graph"]?.[0];
+  if (!latest?.id) return null;
+
+  const product = await nwsFetch(
+    `${config.nwsBaseUrl}/products/${latest.id}`,
+    "application/ld+json"
+  );
+  if (!product?.productText) return null;
+
+  return {
+    office,
+    issuanceTime: product.issuanceTime ?? latest.issuanceTime ?? new Date().toISOString(),
+    text: product.productText,
+  };
 }
 
 export async function fetchLatestObservation(

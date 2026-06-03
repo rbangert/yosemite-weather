@@ -3,10 +3,9 @@ import Layout from '../layouts/Layout.astro';
 import ObsTable from '../components/ObsTable.astro';
 import SummaryCard from '../components/SummaryCard.astro';
 import PeriodForecast from '../components/PeriodForecast.astro';
-import SunMoonCard from '../components/SunMoonCard.astro';
 import AvalancheCard from '../components/AvalancheCard.astro';
-import { fetchOverview, fetchForecast, fetchLatestObservation, fetchPeriodForecast, fetchAvalancheZones } from '../lib/api';
-import type { AreaOverview, ForecastRow, ObservationRow, PeriodForecastRow, AvalancheZoneSummary } from '../lib/api';
+import { fetchOverview, fetchForecast, fetchLatestObservation, fetchPeriodForecast, fetchAvalancheZones, fetchForecastDiscussion } from '../lib/api';
+import type { AreaOverview, ForecastRow, ObservationRow, PeriodForecastRow, AvalancheZoneSummary, ForecastDiscussion } from '../lib/api';
 
 // Yosemite Valley is the canonical representative for the Valley & West area.
 const REP_SLUG = 'yosemite-valley';
@@ -19,19 +18,22 @@ let repForecast: ForecastRow[] = [];
 let repObservation: ObservationRow | null = null;
 let repPeriods: PeriodForecastRow[] = [];
 let avalancheZones: AvalancheZoneSummary[] = [];
+let repDiscussion: ForecastDiscussion | null = null;
 let error: string | null = null;
 
 try {
-  const [allAreas, forecast, observation, periods] = await Promise.all([
+  const [allAreas, forecast, observation, periods, discussion] = await Promise.all([
     fetchOverview(),
     fetchForecast(REP_SLUG),
     fetchLatestObservation(REP_SLUG),
     fetchPeriodForecast(REP_SLUG),
+    fetchForecastDiscussion(REP_SLUG),
   ]);
   areaData = allAreas.find(a => a.slug === 'valley-west');
   repForecast = forecast;
   repObservation = observation;
   repPeriods = periods;
+  repDiscussion = discussion;
 } catch (e) {
   error = e instanceof Error ? e.message : 'Failed to load weather data';
 }
@@ -53,11 +55,17 @@ avalancheZones = await fetchAvalancheZones();
       </div>
     )}
 
-    <SummaryCard pointName={REP_NAME} observation={repObservation} forecast={repForecast} />
+    <SummaryCard
+      pointName={REP_NAME}
+      observation={repObservation}
+      forecast={repForecast}
+      periods={repPeriods}
+      discussion={repDiscussion}
+      lat={REP_LAT}
+      lon={REP_LON}
+    />
 
     <PeriodForecast periods={repPeriods} />
-
-    <SunMoonCard lat={REP_LAT} lon={REP_LON} />
 
     {areaData && (
       <ObsTable points={areaData.points} areaSlug="valley-west" />

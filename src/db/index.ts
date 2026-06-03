@@ -171,6 +171,17 @@ export function setupSchema(): void {
     )
   `);
 
+  // NWS Area Forecast Discussion — one row per issuing office (WFO == grid_id).
+  // Upserted on each poll so the latest discussion replaces the previous one.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS forecast_discussions (
+      office        TEXT PRIMARY KEY,
+      issuance_time TEXT,
+      product_text  TEXT NOT NULL,
+      fetched_at    TEXT NOT NULL
+    )
+  `);
+
   // SNOTEL SWE data from California CDEC API.
   db.run(`
     CREATE TABLE IF NOT EXISTS snotel_stations (

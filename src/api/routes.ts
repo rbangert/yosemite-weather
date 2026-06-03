@@ -23,6 +23,9 @@ export function handleRequest(req: Request): Response {
   const periods = pathname.match(/^\/api\/points\/([^/]+)\/forecast\/periods$/);
   if (periods) return handlePeriodForecast(periods[1]);
 
+  const discussion = pathname.match(/^\/api\/points\/([^/]+)\/forecast\/discussion$/);
+  if (discussion) return handleDiscussion(discussion[1]);
+
   if (pathname === "/api/alerts") return handleAlerts();
   if (pathname === "/api/wind-loading") return handleWindLoading();
   if (pathname === "/api/data-explorer") return handleDataExplorer();
@@ -166,6 +169,26 @@ function handlePeriodForecast(slug: string): Response {
     .all(slug);
 
   return json(rows);
+}
+
+// Latest Area Forecast Discussion for the point's NWS office (grid_id).
+function handleDiscussion(slug: string): Response {
+  const db = getDb();
+  const point = db.prepare(`SELECT grid_id FROM points WHERE slug = ?`).get(slug) as
+    | { grid_id: string | null }
+    | undefined;
+  if (!point) return json({ error: "Unknown point" }, 404);
+  if (!point.grid_id) return json({ error: "Point not yet resolved" }, 404);
+
+  const row = db
+    .prepare(
+      `SELECT office, issuance_time, product_text, fetched_at
+       FROM forecast_discussions WHERE office = ?`
+    )
+    .get(point.grid_id);
+
+  if (!row) return json({ error: "No forecast discussion available" }, 404);
+  return json(row);
 }
 
 // Active NWS alerts (not yet expired). Ordered most-severe first.
