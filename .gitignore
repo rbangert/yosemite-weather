@@ -12,3 +12,7 @@ data/
 
 # Claude Code local (machine-specific) settings
 .claude/settings.local.json
+
+# Python analysis tooling artifacts
+scripts/__pycache__/
+scripts/*.png

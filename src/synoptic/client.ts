@@ -130,6 +130,58 @@ function obsVal(obs: Record<string, any>, key: string): number | null {
   return sensor.value;
 }
 
+// A single wind-station observation in English units (shared shape with the NWS
+// path so the poller can upsert from either source).
+export interface WindHistoryObs {
+  observedAt: string;
+  windSpeed: number | null;     // mph
+  windGust: number | null;      // mph
+  windDirection: number | null; // degrees
+  airTemp: number | null;       // °F
+}
+
+// Fetch a window of recent observations for fixed station IDs via the timeseries
+// endpoint (one call covers all stations). Returns a map of stid → obs[] sorted
+// oldest-first. Used by the hybrid wind poller with Synoptic as primary source.
+export async function fetchWindStationHistory(
+  stids: string[],
+  hours: number
+): Promise<Map<string, WindHistoryObs[]>> {
+  const out = new Map<string, WindHistoryObs[]>();
+  if (stids.length === 0) return out;
+
+  const end = new Date();
+  const start = new Date(end.getTime() - hours * 3_600_000);
+  const fmt = (d: Date) => d.toISOString().slice(0, 16).replace(/[-:T]/g, "");
+
+  const data = await synopticFetch("/stations/timeseries", {
+    stid: stids.join(","),
+    start: fmt(start),
+    end: fmt(end),
+    vars: ["wind_speed", "wind_gust", "wind_direction", "air_temp"].join(","),
+    units: "english",
+    obtimezone: "utc",
+  });
+
+  for (const s of (data?.STATION ?? []) as any[]) {
+    const o: Record<string, any> = s.OBSERVATIONS ?? {};
+    const times: string[] = o.date_time ?? [];
+    const spd: (number | null)[] = o.wind_speed_set_1 ?? [];
+    const gst: (number | null)[] = o.wind_gust_set_1 ?? [];
+    const dir: (number | null)[] = o.wind_direction_set_1 ?? [];
+    const tmp: (number | null)[] = o.air_temp_set_1 ?? [];
+    const rows: WindHistoryObs[] = times.map((t, i) => ({
+      observedAt: t,
+      windSpeed: spd[i] ?? null,
+      windGust: gst[i] ?? null,
+      windDirection: dir[i] ?? null,
+      airTemp: tmp[i] ?? null,
+    }));
+    out.set(s.STID as string, rows);
+  }
+  return out;
+}
+
 // Pick the most recent date_time string across a set of sensor keys.
 function latestDate(obs: Record<string, any>, keys: string[]): string {
   const dates = keys

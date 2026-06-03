@@ -5,16 +5,20 @@ import {
   fetchGridpointForecast,
   fetchPeriodForecast,
   fetchLatestObservation,
+  fetchObservationHistory,
   fetchActiveAlerts,
   type ForecastHour,
   type ForecastPeriod,
   type LatestObservation,
   type NwsAlert,
 } from "../nws/client";
+import { WIND_STATIONS } from "../wind/stations";
 import {
   findNearestStation,
   fetchLatestObservations,
+  fetchWindStationHistory,
   type SynopticObservation,
+  type WindHistoryObs,
 } from "../synoptic/client";
 
 interface PointRow {
@@ -60,11 +64,12 @@ export async function poll(): Promise<{ forecasts: number; observations: number 
     }
   }
 
+  const windCount = await pollWindStations();
   const alertCount = await pollAlerts();
 
   const pruned = pruneOldData();
   console.log(
-    `Stored ${forecastCount} forecast hours, ${obsCount} new observations, ${alertCount} alerts at ${new Date().toISOString()}`
+    `Stored ${forecastCount} forecast hours, ${obsCount} new observations, ${windCount} wind-station obs, ${alertCount} alerts at ${new Date().toISOString()}`
   );
   if (pruned.forecasts > 0 || pruned.observations > 0 || pruned.alerts > 0) {
     console.log(
@@ -169,6 +174,78 @@ function writeObservation(slug: string, stationId: string, obs: LatestObservatio
       obs.precipLastHour, obs.snowDepth
     );
   return result.changes > 0 ? 1 : 0;
+}
+
+// --- High-elevation wind stations -------------------------------------------
+
+// Pull a window of recent observations for each fixed high-elevation wind station
+// and upsert into wind_station_obs. These feed the Snow Transport Index, which
+// needs a multi-hour history rather than just the latest reading.
+//
+// HYBRID source: Synoptic is primary (higher cadence, richer gusts — e.g. it
+// reports TUMC1 gusts that NWS omits). A single timeseries call covers all
+// stations. Any station Synoptic doesn't return (or if the whole call fails, or
+// no token) falls back to the free NWS observation history. Best-effort per
+// station: one failure never aborts the others.
+export async function pollWindStations(): Promise<number> {
+  const db = getDb();
+  const upsert = db.prepare(`
+    INSERT INTO wind_station_obs (
+      station_id, observed_at, polled_at, wind_speed, wind_gust, wind_direction, air_temp, source
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(station_id, observed_at) DO NOTHING
+  `);
+  const now = new Date().toISOString();
+  const lookback = config.windObsLookbackHours;
+
+  // 1) Primary: one Synoptic timeseries call for all stations.
+  let synoptic = new Map<string, WindHistoryObs[]>();
+  if (config.synopticApiToken) {
+    try {
+      synoptic = await fetchWindStationHistory(WIND_STATIONS.map((s) => s.id), lookback);
+    } catch (err) {
+      console.warn(`  wind: Synoptic batch failed — falling back to NWS (${(err as Error).message})`);
+    }
+  }
+
+  let count = 0;
+  const write = (stationId: string, source: string, rows: WindHistoryObs[]) => {
+    const tx = db.transaction(() => {
+      for (const o of rows) {
+        // Canonicalize the timestamp (NWS emits +00:00, Synoptic emits Z) so the
+        // (station_id, observed_at) key dedupes across sources.
+        const ts = new Date(o.observedAt).toISOString();
+        const r = upsert.run(
+          stationId, ts, now,
+          o.windSpeed, o.windGust, o.windDirection, o.airTemp, source
+        );
+        if (r.changes > 0) count++;
+      }
+    });
+    tx();
+  };
+
+  for (const station of WIND_STATIONS) {
+    const synRows = synoptic.get(station.id);
+    if (synRows && synRows.length > 0) {
+      write(station.id, "synoptic", synRows);
+      continue;
+    }
+    // 2) Fallback: free NWS observation history for this station.
+    try {
+      const nws = await fetchObservationHistory(station.id, lookback);
+      write(station.id, "nws", nws.map((o) => ({
+        observedAt: o.observedAt,
+        windSpeed: o.windSpeed,
+        windGust: o.windGust,
+        windDirection: o.windDirection,
+        airTemp: o.airTemp,
+      })));
+    } catch (err) {
+      console.warn(`  wind ${station.id}: ${(err as Error).message}`);
+    }
+  }
+  return count;
 }
 
 // --- Period forecast polling ------------------------------------------------

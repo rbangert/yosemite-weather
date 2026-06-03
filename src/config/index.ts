@@ -12,6 +12,13 @@ export const config = {
   forecastHours: Number(process.env.FORECAST_HOURS) || 72,
   // How many days of past observations to retain.
   observationRetentionDays: Number(process.env.OBSERVATION_RETENTION_DAYS) || 30,
+  // How many hours of history to pull each cycle for the high-elevation wind
+  // stations. Matches the loading window so one fetch always covers it (robust to
+  // restarts/gaps). Kept modest to bound Synoptic service-unit spend, since this
+  // runs on the main poll cadence; raise via env if you want more margin.
+  windObsLookbackHours: Number(process.env.WIND_OBS_LOOKBACK_HOURS) || 24,
+  // Window (hours) over which the wind-loading Snow Transport Index is computed.
+  windLoadingWindowHours: Number(process.env.WIND_LOADING_WINDOW_HOURS) || 24,
   // Retry transient NWS failures (5xx/429/network) with exponential backoff.
   retryMaxAttempts: Number(process.env.NWS_RETRY_MAX_ATTEMPTS) || 3,
   retryBaseDelayMs: Number(process.env.NWS_RETRY_BASE_DELAY_MS) || 500,

@@ -97,6 +97,30 @@ export function setupSchema(): void {
     ON observations(point_slug, observed_at DESC)
   `);
 
+  // Raw observation history for the FIXED high-elevation wind stations (see
+  // wind/stations.ts). Kept separate from `observations` because these stations
+  // are tied to specific IDs, not points, and we need a multi-hour window to
+  // integrate the Snow Transport Index. Upserted on (station_id, observed_at).
+  db.run(`
+    CREATE TABLE IF NOT EXISTS wind_station_obs (
+      station_id     TEXT NOT NULL,
+      observed_at    TEXT NOT NULL,      -- ISO 8601 timestamp from the station
+      polled_at      TEXT NOT NULL,
+      wind_speed     REAL,               -- mph
+      wind_gust      REAL,               -- mph
+      wind_direction REAL,               -- degrees (FROM)
+      air_temp       REAL,               -- °F
+      source         TEXT NOT NULL DEFAULT 'nws',  -- 'synoptic' | 'nws'
+      PRIMARY KEY (station_id, observed_at)
+    )
+  `);
+  try { db.run(`ALTER TABLE wind_station_obs ADD COLUMN source TEXT NOT NULL DEFAULT 'nws'`); } catch {}
+
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_wind_obs_station_time
+    ON wind_station_obs(station_id, observed_at DESC)
+  `);
+
   // NWS 7-day period forecast — 12-hour day/night periods with text + icons.
   // Upserted on (point_slug, start_time); pruned when end_time passes.
   db.run(`
@@ -254,6 +278,7 @@ export function pruneOldData(): { forecasts: number; observations: number } {
   ).run();
   const f = db.prepare(`DELETE FROM forecasts WHERE valid_time < ?`).run(nowHour);
   const o = db.prepare(`DELETE FROM observations WHERE observed_at < ?`).run(obsCutoff);
+  db.prepare(`DELETE FROM wind_station_obs WHERE observed_at < ?`).run(obsCutoff);
   // Remove alerts that have fully expired (use ends when present, else expires).
   const a = db.prepare(
     `DELETE FROM alerts WHERE COALESCE(ends, expires) < ?`

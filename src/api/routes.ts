@@ -1,5 +1,7 @@
 import { getDb } from "../db";
 import { areas, config } from "../config";
+import { WIND_STATIONS } from "../wind/stations";
+import { computeWindLoading, type WindObs, type Severity } from "../wind/transport";
 
 export function handleRequest(req: Request): Response {
   const url = new URL(req.url);
@@ -22,6 +24,7 @@ export function handleRequest(req: Request): Response {
   if (periods) return handlePeriodForecast(periods[1]);
 
   if (pathname === "/api/alerts") return handleAlerts();
+  if (pathname === "/api/wind-loading") return handleWindLoading();
   if (pathname === "/api/data-explorer") return handleDataExplorer();
   if (pathname === "/api/swe") return handleSweStations();
 
@@ -181,6 +184,98 @@ function handleAlerts(): Response {
     )
     .all(now);
   return json(rows);
+}
+
+// Wind-transported-snow / loading index for the high-elevation stations.
+// For each fixed station: pull the recent obs window, decide whether transportable
+// snow exists (recent SWE gain at the nearest SNOTEL site + cold), and compute the
+// Snow Transport Index, drift rose, and resultant lee-loading direction.
+const SEVERITY_RANK: Record<Severity, number> = { None: 0, Light: 1, Moderate: 2, Intense: 3 };
+
+function handleWindLoading(): Response {
+  const db = getDb();
+  const windowStart = new Date(
+    Date.now() - config.windLoadingWindowHours * 3_600_000
+  ).toISOString();
+
+  const obsStmt = db.prepare(
+    `SELECT observed_at, wind_speed, wind_gust, wind_direction, air_temp, source
+     FROM wind_station_obs
+     WHERE station_id = ? AND observed_at >= ?
+     ORDER BY observed_at ASC`
+  );
+
+  const stations = WIND_STATIONS.map((s) => {
+    const rows = obsStmt.all(s.id, windowStart) as {
+      observed_at: string;
+      wind_speed: number | null;
+      wind_gust: number | null;
+      wind_direction: number | null;
+      air_temp: number | null;
+      source: string;
+    }[];
+
+    const obs: WindObs[] = rows.map((r) => ({
+      observedAt: r.observed_at,
+      windSpeedMph: r.wind_speed,
+      windGustMph: r.wind_gust,
+      windDirectionDeg: r.wind_direction,
+      airTempF: r.air_temp,
+    }));
+
+    const snow = snowAvailability(s.snotelId);
+    const loading = computeWindLoading(obs, {
+      snowAvailable: snow.available,
+      thresholds: s.severity,
+    });
+
+    return {
+      id: s.id,
+      name: s.name,
+      elevationFt: s.elevationFt,
+      hasGust: s.hasGust,
+      snotelId: s.snotelId,
+      source: rows.at(-1)?.source ?? null,
+      newSnowInches: snow.gainInches,
+      ...loading,
+    };
+  });
+
+  // Area roll-up: worst severity and the lee direction of the most-loaded station.
+  const withData = stations.filter((s) => s.obsCount > 0);
+  const worst = withData.reduce<(typeof stations)[number] | null>(
+    (acc, s) => (acc == null || SEVERITY_RANK[s.severity] > SEVERITY_RANK[acc.severity] ? s : acc),
+    null
+  );
+
+  return json({
+    windowHours: config.windLoadingWindowHours,
+    thresholdMph: 13.4,
+    summary: worst
+      ? { severity: worst.severity, leeDirection: worst.leeDirection, drivenBy: worst.name }
+      : { severity: "None", leeDirection: null, drivenBy: null },
+    stations,
+  });
+}
+
+// Whether loose, transportable snow likely exists near a SNOTEL site: a recent
+// net SWE gain (new snow) over the last few days. Melting/calm periods → false,
+// which closes the transport gate even when winds are strong.
+function snowAvailability(snotelId: string): { available: boolean; gainInches: number } {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT value_in FROM swe_readings
+       WHERE station_id = ? AND value_in IS NOT NULL
+       ORDER BY date DESC LIMIT 5`
+    )
+    .all(snotelId) as { value_in: number }[];
+
+  if (rows.length < 2) return { available: false, gainInches: 0 };
+  const latest = rows[0].value_in;
+  const earliest = rows[rows.length - 1].value_in;
+  const gain = Math.round((latest - earliest) * 100) / 100;
+  return { available: gain >= 0.2, gainInches: gain };
 }
 
 // Aggregated payload for the data-explorer visualisation page.

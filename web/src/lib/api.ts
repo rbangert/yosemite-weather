@@ -179,6 +179,45 @@ export async function fetchDataExplorer(): Promise<DataExplorerPayload> {
   return res.json() as Promise<DataExplorerPayload>;
 }
 
+// --- Wind loading (high-elevation snow transport) ---------------------------
+
+export type WindSeverity = "None" | "Light" | "Moderate" | "Intense";
+
+export interface WindLoadingStation {
+  id: string;
+  name: string;
+  elevationFt: number;
+  hasGust: boolean;
+  snotelId: string;
+  source: string | null;
+  newSnowInches: number;
+  obsCount: number;
+  windowHours: number;
+  peakSustainedMph: number;
+  peakGustMph: number;
+  sti: number;
+  stiGated: number;
+  leeDirectionDeg: number | null;
+  leeDirection: string | null;
+  focus: number;
+  rose: Record<string, number>;
+  gateOpen: boolean;
+  severity: WindSeverity;
+}
+
+export interface WindLoadingPayload {
+  windowHours: number;
+  thresholdMph: number;
+  summary: { severity: WindSeverity; leeDirection: string | null; drivenBy: string | null };
+  stations: WindLoadingStation[];
+}
+
+export async function fetchWindLoading(): Promise<WindLoadingPayload> {
+  const res = await fetch(`${API_BASE}/api/wind-loading`);
+  if (!res.ok) throw new Error(`Wind loading fetch failed: ${res.status}`);
+  return res.json() as Promise<WindLoadingPayload>;
+}
+
 // --- SNOTEL SWE -------------------------------------------------------------
 
 export interface SnotelStation {

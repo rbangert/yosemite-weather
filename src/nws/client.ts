@@ -303,6 +303,36 @@ export async function fetchPeriodForecast(
   }));
 }
 
+// Fetch a window of recent observations for a station (newest-first from the API,
+// returned oldest-first). Used by the wind-loading component, which needs a 24h+
+// history to integrate the transport index rather than just the latest reading.
+export async function fetchObservationHistory(
+  stationId: string,
+  hours: number
+): Promise<LatestObservation[]> {
+  const end = new Date();
+  const start = new Date(end.getTime() - hours * 3_600_000);
+  const data = await nwsFetch(
+    `${config.nwsBaseUrl}/stations/${stationId}/observations` +
+      `?start=${start.toISOString()}&end=${end.toISOString()}&limit=500`
+  );
+  const features: any[] = data.features ?? [];
+  return features
+    .map((f) => f.properties)
+    .filter((p) => p?.timestamp)
+    .map((p) => ({
+      observedAt: p.timestamp,
+      airTemp: conv(p.temperature, cToF),
+      windSpeed: conv(p.windSpeed, kmhToMph),
+      windGust: conv(p.windGust, kmhToMph),
+      windDirection: val(p.windDirection),
+      relativeHumidity: val(p.relativeHumidity),
+      precipLastHour: conv(p.precipitationLastHour, mmToIn),
+      snowDepth: conv(p.snowDepth, mmToIn),
+    }))
+    .sort((a, b) => a.observedAt.localeCompare(b.observedAt));
+}
+
 export async function fetchLatestObservation(
   stationId: string
 ): Promise<LatestObservation | null> {

@@ -1,0 +1,220 @@
+---
+import { fetchWindLoading } from '../lib/api';
+import type { WindLoadingPayload, WindLoadingStation, WindSeverity } from '../lib/api';
+
+let data: WindLoadingPayload | null = null;
+try {
+  data = await fetchWindLoading();
+} catch {
+  // Backend not ready — render nothing.
+}
+
+const COMPASS16 = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+
+// Tailwind classes per severity band.
+const SEV_BADGE: Record<WindSeverity, string> = {
+  None:     'bg-slate-800 text-slate-400 ring-slate-700',
+  Light:    'bg-cyan-500/15 text-cyan-300 ring-cyan-500/30',
+  Moderate: 'bg-orange-500/15 text-orange-300 ring-orange-500/30',
+  Intense:  'bg-red-500/15 text-red-300 ring-red-500/30',
+};
+const SEV_DOT: Record<WindSeverity, string> = {
+  None: 'bg-slate-500', Light: 'bg-cyan-400', Moderate: 'bg-orange-400', Intense: 'bg-red-400',
+};
+
+const stations: WindLoadingStation[] = data?.stations ?? [];
+// Rose: prefer the station driving the summary; else the flagship (highest elev with obs).
+const withData = stations.filter((s) => s.obsCount > 0);
+const focusStation =
+  withData.find((s) => s.name === data?.summary.drivenBy && s.stiGated > 0) ??
+  [...withData].sort((a, b) => b.stiGated - a.stiGated || b.elevationFt - a.elevationFt)[0] ?? null;
+
+const roseValues = focusStation ? COMPASS16.map((c) => focusStation.rose[c] ?? 0) : [];
+const summary = data?.summary;
+const sources = [...new Set(stations.map((s) => s.source).filter(Boolean))];
+const sourceLabel = sources.length
+  ? sources.map((s) => (s === 'synoptic' ? 'Synoptic' : 'NWS')).join(' + ')
+  : 'NWS';
+---
+
+{data ? (
+  <section class="rounded-xl border border-slate-800 bg-slate-900 p-4 md:p-5">
+    <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">
+          Wind-Transported Snow
+        </h2>
+        <p class="mt-0.5 text-sm text-slate-500">
+          High-country loading index · last {data.windowHours}h · transport threshold {Math.round(data.thresholdMph)} mph
+        </p>
+      </div>
+      {summary && (
+        <div class="flex items-center gap-2">
+          <span class={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold ring-1 ${SEV_BADGE[summary.severity]}`}>
+            <span class={`h-2 w-2 rounded-full ${SEV_DOT[summary.severity]}`}></span>
+            {summary.severity === 'None' ? 'No active loading' : `${summary.severity} loading`}
+          </span>
+        </div>
+      )}
+    </div>
+
+    {summary && summary.severity !== 'None' && summary.leeDirection && (
+      <p class="mb-4 text-sm text-slate-300">
+        Snow loading onto <strong class="text-orange-300">{summary.leeDirection}</strong>-facing lee aspects
+        {summary.drivenBy && <> · driven by <span class="text-slate-200">{summary.drivenBy}</span></>}
+      </p>
+    )}
+
+    <div class="grid gap-5 md:grid-cols-[minmax(0,300px)_1fr]">
+      <!-- Drift rose -->
+      <div class="flex flex-col items-center">
+        <div class="relative aspect-square w-full max-w-[300px]">
+          <div
+            class="wind-rose absolute inset-0"
+            data-rose={JSON.stringify(roseValues)}
+            data-lee={focusStation?.leeDirectionDeg ?? ''}
+          ></div>
+          {(!focusStation || focusStation.stiGated === 0) && (
+            <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <span class="rounded-md bg-slate-950/70 px-2.5 py-1 text-center text-xs text-slate-400">
+                No active transport
+              </span>
+            </div>
+          )}
+        </div>
+        <p class="mt-1 text-center text-xs text-slate-500">
+          Lee loading by aspect{focusStation ? ` · ${focusStation.name}` : ''}
+        </p>
+      </div>
+
+      <!-- Station table -->
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-slate-800 text-left text-xs uppercase tracking-wide text-slate-500">
+              <th class="py-2 pr-3 font-medium">Station</th>
+              <th class="py-2 px-2 text-right font-medium">Elev</th>
+              <th class="py-2 px-2 text-right font-medium">Peak gust</th>
+              <th class="py-2 px-2 text-right font-medium">Loading</th>
+              <th class="py-2 px-2 text-center font-medium">Snow</th>
+              <th class="py-2 pl-2 text-center font-medium">Lee</th>
+            </tr>
+          </thead>
+          <tbody>
+            {stations.map((s) => (
+              <tr class="border-b border-slate-800/60">
+                <td class="py-2 pr-3">
+                  <span class="font-medium text-slate-200">{s.name}</span>
+                  {!s.hasGust && <span class="ml-1 text-[10px] text-slate-600" title="No gust sensor">(no gust)</span>}
+                </td>
+                <td class="py-2 px-2 text-right tabular-nums text-slate-400">
+                  <span data-unit="elevation" data-val={s.elevationFt}>{s.elevationFt.toLocaleString()} ft</span>
+                </td>
+                <td class="py-2 px-2 text-right tabular-nums text-slate-300">
+                  {s.obsCount > 0
+                    ? <span data-unit="speed" data-val={s.peakGustMph}>{s.peakGustMph} mph</span>
+                    : <span class="text-slate-600">—</span>}
+                </td>
+                <td class="py-2 px-2 text-right">
+                  <span class={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium ring-1 ${SEV_BADGE[s.severity]}`}>
+                    {s.severity}
+                  </span>
+                </td>
+                <td class="py-2 px-2 text-center text-xs">
+                  {s.gateOpen
+                    ? <span class="text-cyan-300" title={`${s.newSnowInches}" recent SWE gain`}>loose</span>
+                    : <span class="text-slate-600" title={`${s.newSnowInches}" recent SWE change`}>—</span>}
+                </td>
+                <td class="py-2 pl-2 text-center tabular-nums text-slate-300">
+                  {s.leeDirection ?? <span class="text-slate-600">—</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <p class="mt-4 text-xs text-slate-600">
+      Transport index ∝ Σ max(0, wind − threshold)³, gated by recent new snow (SNOTEL SWE) and cold surface.
+      A directional <em>hint</em> from point sensors — not a substitute for field observation in avalanche terrain.
+      <span class="text-slate-700">· source: {sourceLabel}</span>
+    </p>
+  </section>
+) : null}
+
+<style is:global>
+  .wind-rose svg { display: block; }
+</style>
+
+<script>
+  import * as d3 from 'd3';
+  import { DRACULA } from '../lib/d3chart';
+
+  const COMPASS16 = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+
+  document.querySelectorAll<HTMLDivElement>('.wind-rose[data-rose]').forEach((host) => {
+    const values: number[] = JSON.parse(host.dataset.rose || '[]');
+    const leeDeg = host.dataset.lee ? Number(host.dataset.lee) : null;
+
+    function render() {
+      const size = Math.max(160, Math.min(host.clientWidth || 260, host.clientHeight || 260));
+      host.querySelectorAll('svg').forEach((n) => n.remove());
+      const svg = d3.select(host).append('svg').attr('width', size).attr('height', size);
+      const cx = size / 2, cy = size / 2;
+      const maxR = size / 2 - 22;
+      const g = svg.append('g').attr('transform', `translate(${cx},${cy})`);
+
+      // Concentric grid rings + cardinal labels.
+      for (const f of [0.33, 0.66, 1]) {
+        g.append('circle').attr('r', maxR * f).attr('fill', 'none')
+          .attr('stroke', 'rgba(148,163,184,0.12)');
+      }
+      const cards = [['N', 0], ['E', 90], ['S', 180], ['W', 270]] as const;
+      for (const [lab, deg] of cards) {
+        const a = (deg * Math.PI) / 180;
+        g.append('text')
+          .attr('x', Math.sin(a) * (maxR + 12)).attr('y', -Math.cos(a) * (maxR + 12))
+          .attr('text-anchor', 'middle').attr('dominant-baseline', 'middle')
+          .attr('fill', '#64748b').attr('font-size', 11).text(lab);
+      }
+
+      const max = Math.max(...values, 0);
+      if (max <= 0) return; // empty rose: rings only
+
+      // Scale radius by sqrt so visual area ~ transport magnitude.
+      const r = (v: number) => (v <= 0 ? 0 : maxR * Math.sqrt(v / max));
+      const arc = d3.arc<number>()
+        .innerRadius(0)
+        .outerRadius((i) => r(values[i]))
+        .startAngle((i) => ((i * 22.5 - 11.25) * Math.PI) / 180)
+        .endAngle((i) => ((i * 22.5 + 11.25) * Math.PI) / 180)
+        .padAngle(0.01);
+
+      g.selectAll('path.petal')
+        .data(values.map((_, i) => i))
+        .join('path')
+        .attr('class', 'petal')
+        .attr('d', (i) => arc(i)!)
+        .attr('fill', DRACULA.orange)
+        .attr('fill-opacity', (i) => 0.35 + 0.55 * (values[i] / max))
+        .attr('stroke', DRACULA.orange).attr('stroke-opacity', 0.4).attr('stroke-width', 0.5)
+        .append('title')
+        .text((i) => `${COMPASS16[i]} lee · ${Math.round((values[i] / values.reduce((a, b) => a + b, 0)) * 100)}%`);
+
+      // Resultant lee-direction needle.
+      if (leeDeg != null) {
+        const a = (leeDeg * Math.PI) / 180;
+        g.append('line')
+          .attr('x1', 0).attr('y1', 0)
+          .attr('x2', Math.sin(a) * maxR).attr('y2', -Math.cos(a) * maxR)
+          .attr('stroke', DRACULA.fg).attr('stroke-width', 1.5).attr('stroke-dasharray', '3,3');
+        g.append('circle').attr('r', 3).attr('fill', DRACULA.fg);
+      }
+    }
+
+    render();
+    let rt: number | undefined;
+    window.addEventListener('resize', () => { clearTimeout(rt); rt = window.setTimeout(render, 150); });
+  });
+</script>

@@ -1,0 +1,23 @@
+---
+import Layout from '../layouts/Layout.astro';
+import WindLoadingCard from '../components/WindLoadingCard.astro';
+---
+
+<Layout title="Wind Loading">
+  <div class="mx-auto max-w-5xl px-4 py-8">
+    <div class="mb-6">
+      <h1 class="text-2xl font-bold text-slate-100">Wind-Transported Snow</h1>
+      <p class="mt-1 text-sm text-slate-400">
+        High-elevation wind loading for avalanche terrain — which lee aspects are gaining wind-drifted snow.
+      </p>
+    </div>
+
+    <WindLoadingCard />
+
+    <p class="mt-6 text-xs text-slate-600">
+      Observations from NWS high-country stations (Vogelsang 10,118 ft, White Wolf, Tuolumne Meadows, Tioga Pass).
+      Snow-availability gate uses NRCS SNOTEL SWE via CDEC. Severity bands are provisional pending a season of
+      calibration. Decision support only — always corroborate with field observations.
+    </p>
+  </div>
+</Layout>
