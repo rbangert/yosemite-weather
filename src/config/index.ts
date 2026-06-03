@@ -44,7 +44,29 @@ export const config = {
   // Number of water years to keep on hand (current WY + prior WYs). 21 gives the
   // current year + 20 complete prior years, enough for the 20-year SWE average.
   snotelBackfillYears: Number(process.env.SNOTEL_BACKFILL_YEARS) || 21,
+
+  // National Avalanche Center public API (https://api.avalanche.org/v2/public).
+  // No auth, no rate limit. Forecasts update ~once daily during season, so a
+  // few times a day is plenty. Always enabled (no token gate).
+  avalancheBaseUrl: "https://api.avalanche.org/v2/public",
+  avalanchePollIntervalMs: Number(process.env.AVALANCHE_POLL_INTERVAL_MS) || 3 * 60 * 60 * 1000, // 3h
 };
+
+// Avalanche forecast zones neighboring Yosemite. Yosemite NP has no in-park
+// forecast; these three centers cover the bordering backcountry. Zone ids
+// resolved once via /v2/public/avalanche-center/{id}.
+export interface AvalancheZoneConfig {
+  centerId: string;
+  zoneId: number;
+  name: string;
+  relation: string; // human-readable position relative to the park
+}
+
+export const avalancheZones: AvalancheZoneConfig[] = [
+  { centerId: "ESAC", zoneId: 128, name: "Eastside Region", relation: "East — Tioga & eastern approaches" },
+  { centerId: "BAC", zoneId: 3004, name: "Bridgeport", relation: "North — Sonora Pass approaches" },
+  { centerId: "SAC", zoneId: 2458, name: "Central Sierra Nevada", relation: "North — Tahoe regional reference" },
+];
 
 // A monitored location, identified by coordinates. NWS resolves these to a
 // forecast gridpoint (for forecasts) and a nearest station (for observations).

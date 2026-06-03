@@ -598,7 +598,10 @@ adapted for Yosemite. Milestones are ordered roughly by priority; checked items 
 - [ ] Snow depth with 12 / 24 / 48-hour change _(ccweather: snow depth + deltas)_ — needs SNOTEL data
 - [ ] 30-day snow-depth trend chart _(ccweather: 30-day trends)_
 - [x] Snow Water Equivalent multi-season comparison _(ccweather: SWE graphs)_ — CDEC SNOTEL data via `/snowpack`
-- [ ] Avalanche forecast links (e.g. Eastern Sierra Avalanche Center) _(ccweather: avalanche section)_
+- [x] Avalanche forecasts for neighboring zones (ESAC, BAC, SAC) — full danger ratings, elevation-band pyramid, aspect/elevation problem roses, and discussion text via the National Avalanche Center API; `/avalanche` page + homepage strip _(ccweather: avalanche section)_
+  - [ ] Map / GeoJSON zone boundaries — overlay the avalanche.org zone polygons on a map (the `map-layer` endpoint already returns them); ties into Milestone 6
+  - [ ] Recent observations feed — field/avalanche observations from the NAC `/v2/public/observations` endpoint, per zone
+  - [ ] Historical danger trend charting — danger level over the season (requires retaining forecast snapshots; the table currently keeps only the latest per zone)
 
 #### Milestone 6 — Maps & imagery
 
@@ -629,5 +632,8 @@ adapted for Yosemite. Milestones are ordered roughly by priority; checked items 
 - [x] 7-day period forecast polling + endpoint (`GET /api/points/:slug/forecast/periods`).
 - [ ] SNOTEL ingestion — snow depth & snow water equivalent (feeds Milestone 4).
 - [x] Apparent temperature (feels-like), dewpoint, and thunder probability from the NWS raw gridpoint — added to the `forecasts` table.
+- [x] National Avalanche Center forecast ingestion — neighboring zones (ESAC/BAC/SAC) polled into `avalanche_forecasts`, served at `GET /api/avalanche` and `/api/avalanche/:centerId`.
+- [ ] Avalanche observations feed ingestion — NAC `/v2/public/observations` endpoint.
+- [ ] Retain avalanche forecast snapshots (history) to enable danger-trend charting — current schema keeps one row per zone (`PK (center_id, zone_id)`).
 - [ ] WBGT field ingestion from NWS raw gridpoint — extend forecasts table.
 - [ ] Fire weather text product ingestion — FWF/AFD from NWS `/products` endpoint.

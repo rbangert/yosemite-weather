@@ -4,8 +4,9 @@ import ObsTable from '../components/ObsTable.astro';
 import SummaryCard from '../components/SummaryCard.astro';
 import PeriodForecast from '../components/PeriodForecast.astro';
 import SunMoonCard from '../components/SunMoonCard.astro';
-import { fetchOverview, fetchForecast, fetchLatestObservation, fetchPeriodForecast } from '../lib/api';
-import type { AreaOverview, ForecastRow, ObservationRow, PeriodForecastRow } from '../lib/api';
+import AvalancheCard from '../components/AvalancheCard.astro';
+import { fetchOverview, fetchForecast, fetchLatestObservation, fetchPeriodForecast, fetchAvalancheZones } from '../lib/api';
+import type { AreaOverview, ForecastRow, ObservationRow, PeriodForecastRow, AvalancheZoneSummary } from '../lib/api';
 
 // Yosemite Valley is the canonical representative for the Valley & West area.
 const REP_SLUG = 'yosemite-valley';
@@ -17,6 +18,7 @@ let areaData: AreaOverview | undefined;
 let repForecast: ForecastRow[] = [];
 let repObservation: ObservationRow | null = null;
 let repPeriods: PeriodForecastRow[] = [];
+let avalancheZones: AvalancheZoneSummary[] = [];
 let error: string | null = null;
 
 try {
@@ -33,6 +35,9 @@ try {
 } catch (e) {
   error = e instanceof Error ? e.message : 'Failed to load weather data';
 }
+
+// Avalanche zones are best-effort and never block the weather page.
+avalancheZones = await fetchAvalancheZones();
 ---
 
 <Layout title="Valley & West">
@@ -56,6 +61,18 @@ try {
 
     {areaData && (
       <ObsTable points={areaData.points} areaSlug="valley-west" />
+    )}
+
+    {avalancheZones.length > 0 && (
+      <section class="mt-8">
+        <div class="mb-3 flex items-baseline justify-between">
+          <h2 class="text-sm font-semibold uppercase tracking-wider text-amber-500">Avalanche — Neighboring Zones</h2>
+          <a href="/avalanche" class="text-xs font-medium text-slate-400 hover:text-amber-400">View all →</a>
+        </div>
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {avalancheZones.map((z) => <AvalancheCard zone={z} />)}
+        </div>
+      </section>
     )}
 
     {!areaData && !error && (

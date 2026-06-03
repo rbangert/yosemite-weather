@@ -1,0 +1,56 @@
+---
+import type { DangerByElevation } from '../lib/api';
+import { dangerInfo } from '../lib/avalanche';
+
+interface Props {
+  danger: DangerByElevation[];
+  day?: string; // "current" | "tomorrow"
+}
+
+const { danger, day = 'current' } = Astro.props;
+const d = danger.find((x) => x.day === day) ?? danger[0];
+
+// Three elevation bands, top (upper) → bottom (lower), mirroring the standard
+// avalanche.org danger pyramid. Each band is colored by its danger level.
+const bands = d
+  ? [
+      { key: 'upper', label: 'Above Treeline', level: d.upper },
+      { key: 'middle', label: 'Near Treeline', level: d.middle },
+      { key: 'lower', label: 'Below Treeline', level: d.lower },
+    ]
+  : [];
+
+// Trapezoid widths (as % of full width) for the pyramid silhouette.
+const widths = [
+  { top: 38, bottom: 62 }, // upper band — narrowest
+  { top: 62, bottom: 86 },
+  { top: 86, bottom: 100 }, // lower band — widest
+];
+---
+
+{bands.length > 0 && (
+  <div class="flex flex-col items-center gap-1.5">
+    {bands.map((band, i) => {
+      const info = dangerInfo(band.level);
+      const w = widths[i];
+      return (
+        <div class="flex w-full max-w-md items-center gap-3">
+          <div class="w-28 shrink-0 text-right text-[11px] font-medium text-slate-400">{band.label}</div>
+          <div class="relative flex h-12 flex-1 items-center justify-center">
+            <svg viewBox="0 0 100 40" preserveAspectRatio="none" class="absolute inset-0 h-full w-full">
+              <polygon
+                points={`${50 - w.top / 2},0 ${50 + w.top / 2},0 ${50 + w.bottom / 2},40 ${50 - w.bottom / 2},40`}
+                fill={info.bg}
+                stroke="#0f172a"
+                stroke-width="0.5"
+              />
+            </svg>
+            <span class="relative z-10 text-xs font-bold" style={`color:${info.text}`}>
+              {info.level > 0 ? `${info.level} – ${info.label}` : info.label}
+            </span>
+          </div>
+        </div>
+      );
+    })}
+  </div>
+)}

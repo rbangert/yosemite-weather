@@ -1,0 +1,44 @@
+{
+  "id": 999001,
+  "published_time": "2026-01-15T14:30:00+00:00",
+  "expires_time": "2026-01-16T14:30:00+00:00",
+  "author": "J. Forecaster",
+  "product_type": "forecast",
+  "bottom_line": "<p>Heightened avalanche conditions exist on wind-loaded slopes near and above treeline. Human-triggered wind slabs are <strong>likely</strong>. Avoid steep, wind-loaded terrain.</p>",
+  "hazard_discussion": "<p>Strong SW winds overnight built fresh wind slabs along NE-facing upper elevation terrain.</p>",
+  "weather_discussion": "<p>Ridgetop winds 25-40 mph. New snow 4-6 inches.</p>",
+  "status": "published",
+  "danger": [
+    { "valid_day": "current", "lower": 1, "middle": 2, "upper": 3 },
+    { "valid_day": "tomorrow", "lower": 1, "middle": 2, "upper": 2 }
+  ],
+  "forecast_avalanche_problems": [
+    {
+      "id": 5001,
+      "rank": 1,
+      "name": "Wind Slab",
+      "likelihood": "likely",
+      "size": ["1", "2"],
+      "location": ["north upper", "northeast upper", "east upper", "northeast middle"],
+      "problem_description": "<p>Fresh wind slabs 6-12 inches deep on leeward NE aspects.</p>"
+    },
+    {
+      "id": 5002,
+      "rank": 2,
+      "name": "Persistent Slab",
+      "likelihood": "possible",
+      "size": ["2", "3"],
+      "location": ["north middle", "north lower", "northwest middle"],
+      "problem_description": "<p>A buried weak layer of faceted snow remains a concern on shaded slopes.</p>"
+    }
+  ],
+  "forecast_zone": [
+    {
+      "id": 128,
+      "name": "Eastside Region",
+      "url": "https://www.esavalanche.org/forecasts#/eastside-region",
+      "state": "CA",
+      "zone_id": "1"
+    }
+  ]
+}

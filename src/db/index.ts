@@ -197,6 +197,31 @@ export function setupSchema(): void {
     ON swe_readings(station_id, date)
   `);
 
+  // Avalanche forecasts from the National Avalanche Center public API. One
+  // upserted row per neighboring zone holds the latest snapshot; nested danger
+  // bands and avalanche problems are stored as JSON blobs (rendered as-is).
+  db.run(`
+    CREATE TABLE IF NOT EXISTS avalanche_forecasts (
+      center_id         TEXT NOT NULL,
+      zone_id           INTEGER NOT NULL,
+      zone_name         TEXT NOT NULL,
+      product_type      TEXT,            -- 'forecast' | 'summary'
+      off_season        INTEGER,         -- 0/1
+      danger_level      INTEGER,         -- overall (max current band), -1 if none
+      published_time    TEXT,
+      expires_time      TEXT,
+      author            TEXT,
+      bottom_line       TEXT,            -- HTML
+      hazard_discussion TEXT,            -- HTML
+      weather_discussion TEXT,           -- HTML
+      danger_json       TEXT,            -- serialized DangerByElevation[]
+      problems_json     TEXT,            -- serialized AvalancheProblem[]
+      link              TEXT,
+      fetched_at        TEXT NOT NULL,
+      PRIMARY KEY (center_id, zone_id)
+    )
+  `);
+
   // Migrations for columns added after initial schema.
   try { db.run(`ALTER TABLE observations ADD COLUMN snow_depth REAL`); } catch {}
   try { db.run(`ALTER TABLE observations ADD COLUMN source TEXT NOT NULL DEFAULT 'nws'`); } catch {}

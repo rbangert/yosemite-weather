@@ -1,5 +1,5 @@
 import { getDb } from "../db";
-import { areas, config } from "../config";
+import { areas, config, avalancheZones } from "../config";
 import { WIND_STATIONS } from "../wind/stations";
 import { computeWindLoading, type WindObs, type Severity } from "../wind/transport";
 
@@ -30,6 +30,10 @@ export function handleRequest(req: Request): Response {
 
   const sweStation = pathname.match(/^\/api\/swe\/([^/]+)$/);
   if (sweStation) return handleSwe(sweStation[1]);
+
+  if (pathname === "/api/avalanche") return handleAvalancheZones();
+  const avalancheZone = pathname.match(/^\/api\/avalanche\/([^/]+)$/);
+  if (avalancheZone) return handleAvalancheForecast(avalancheZone[1]);
 
   return json({ error: "Not found" }, 404);
 }
@@ -408,6 +412,85 @@ function toWaterYearDay(dateStr: string): number {
   const wyStartMs = Date.UTC(wy - 1, 9, 1); // Oct 1 = month index 9
   const dateMs = Date.UTC(year, month - 1, day);
   return Math.round((dateMs - wyStartMs) / 86_400_000) + 1;
+}
+
+// All neighboring avalanche zones — compact summary for the overview cards.
+// Ordered to match the configured zone list (closest to the park first).
+function handleAvalancheZones(): Response {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT center_id, zone_id, zone_name, product_type, off_season,
+              danger_level, published_time, expires_time, link, fetched_at
+       FROM avalanche_forecasts`
+    )
+    .all() as any[];
+
+  const byKey = new Map(rows.map((r) => [`${r.center_id}:${r.zone_id}`, r]));
+  const zones = avalancheZones.map((z) => {
+    const r = byKey.get(`${z.centerId}:${z.zoneId}`);
+    return {
+      centerId: z.centerId,
+      zoneId: z.zoneId,
+      name: z.name,
+      relation: z.relation,
+      productType: r?.product_type ?? null,
+      offSeason: r ? Boolean(r.off_season) : null,
+      dangerLevel: r?.danger_level ?? -1,
+      publishedTime: r?.published_time ?? null,
+      expiresTime: r?.expires_time ?? null,
+      link: r?.link ?? null,
+      fetchedAt: r?.fetched_at ?? null,
+    };
+  });
+
+  return json(zones);
+}
+
+// Full normalized forecast for one zone, keyed by center id (zones are 1:1 with
+// centers here). Parses the stored danger/problems JSON back into objects.
+function handleAvalancheForecast(centerId: string): Response {
+  const db = getDb();
+  const row = db
+    .prepare(
+      `SELECT center_id, zone_id, zone_name, product_type, off_season, danger_level,
+              published_time, expires_time, author, bottom_line, hazard_discussion,
+              weather_discussion, danger_json, problems_json, link, fetched_at
+       FROM avalanche_forecasts WHERE center_id = ?`
+    )
+    .get(centerId.toUpperCase()) as any;
+
+  if (!row) return json({ error: "Unknown avalanche center" }, 404);
+
+  const meta = avalancheZones.find((z) => z.centerId === row.center_id);
+  return json({
+    centerId: row.center_id,
+    zoneId: row.zone_id,
+    name: row.zone_name,
+    relation: meta?.relation ?? null,
+    productType: row.product_type,
+    offSeason: Boolean(row.off_season),
+    dangerLevel: row.danger_level,
+    publishedTime: row.published_time,
+    expiresTime: row.expires_time,
+    author: row.author,
+    bottomLine: row.bottom_line,
+    hazardDiscussion: row.hazard_discussion,
+    weatherDiscussion: row.weather_discussion,
+    danger: safeParse(row.danger_json, []),
+    problems: safeParse(row.problems_json, []),
+    link: row.link,
+    fetchedAt: row.fetched_at,
+  });
+}
+
+function safeParse<T>(s: string | null, fallback: T): T {
+  if (!s) return fallback;
+  try {
+    return JSON.parse(s) as T;
+  } catch {
+    return fallback;
+  }
 }
 
 function pointExists(slug: string): boolean {
