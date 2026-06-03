@@ -145,6 +145,7 @@ backoff — `NWS_RETRY_MAX_ATTEMPTS` (default 3), `NWS_RETRY_BASE_DELAY_MS` (def
 | `GET /api/overview` | Current-hour forecast + latest observation for every point, grouped by area |
 | `GET /api/points/:slug/forecast?hours=24` | Hourly forecast for the next N hours |
 | `GET /api/points/:slug/forecast/periods` | NWS 7-day period forecast (12-hour day/night periods) |
+| `GET /api/points/:slug/forecast/discussion` | Latest NWS Area Forecast Discussion for the point's office |
 | `GET /api/points/:slug/observations/latest` | Most recent observation (if a station is available) |
 | `GET /api/alerts` | Active NWS alerts, most severe first |
 | `GET /api/data-explorer` | Aggregated DB stats, sample forecast, coverage grid (dev/diagnostic) |
@@ -522,8 +523,7 @@ to load data. Other scripts: `bun run build` (production build), `bun run check`
         │   ├── ForecastChart.astro  # D3 temp + precip chart (detail page)
         │   ├── ObsTable.astro       # Current conditions table (deduplicated by station)
         │   ├── PeriodForecast.astro # 7-day day/night period table with weather icons
-        │   ├── SummaryCard.astro    # Area summary (conditions + notable weather)
-        │   ├── SunMoonCard.astro    # Sunrise/sunset + moon phase card
+        │   ├── SummaryCard.astro    # Area summary: conditions, NWS worded forecast, sun/moon, forecast discussion
         │   ├── SWECard.astro        # Single-station SWE chart (embeddable, compact mode)
         │   ├── SWEChart.astro       # D3 multi-year water-year SWE line chart
         │   └── SWEStationTabs.astro # Tabbed SWE view across all SNOTEL stations
